@@ -14,14 +14,33 @@ export default function Dashboard() {
   const [banking, setBanking] = useState([])
   const [auditLog, setAuditLog] = useState([])
   const [loading, setLoading] = useState(true)
+  const [today, setToday] = useState(() => new Date().toISOString().split('T')[0])
 
-  const today = new Date().toISOString().split('T')[0]
   const monthStart = today.slice(0, 7) + '-01'
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const firstName = user?.name?.split(' ')[0]
 
+  // Detect calendar day rollover while the dashboard stays mounted
   useEffect(() => {
+    const syncToday = () => {
+      const current = new Date().toISOString().split('T')[0]
+      setToday(prev => (prev !== current ? current : prev))
+    }
+    syncToday()
+    const id = setInterval(syncToday, 60_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncToday()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
+  useEffect(() => {
+    setLoading(true)
     Promise.all([
       api.get('/setup'),
       api.get('/compliance'),
@@ -40,7 +59,7 @@ export default function Dashboard() {
       setAuditLog(auditRes.data)
     }).catch(console.error)
     .finally(() => setLoading(false))
-  }, [])
+  }, [today])
 
   // KPI calculations
   const todayRevenue = todayMeter.reduce((s, r) => s + parseFloat(r.amount_ghs || 0), 0)
