@@ -6,70 +6,340 @@ export default function Creditors() {
   const { showToast } = useToast()
   const [creditors, setCreditors] = useState([])
   const [creditSales, setCreditSales] = useState([])
+  const [prices, setPrices] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ sale_date: new Date().toISOString().split('T')[0], creditor_id:'', sxp_litres:'0', dxp_litres:'', sxp_amount_ghs:'0', dxp_amount_ghs:'' })
-  const [prices, setPrices] = useState({})
+  const [showAddCreditor, setShowAddCreditor] = useState(false)
+  const [showPayment, setShowPayment] = useState(false)
+  const [selectedCreditor, setSelectedCreditor] = useState(null)
+
+  const [saleForm, setSaleForm] = useState({
+    sale_date: new Date().toISOString().split('T')[0],
+    creditor_id: '',
+    sxp_litres: '0',
+    dxp_litres: '',
+    sxp_amount_ghs: '0',
+    dxp_amount_ghs: ''
+  })
+
+  const [creditorForm, setCreditorForm] = useState({
+    name: '', contact_name: '', contact_phone: '', credit_limit_ghs: ''
+  })
+
+  const [paymentForm, setPaymentForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    amount_ghs: '', payment_method: '', reference: ''
+  })
 
   useEffect(() => {
-    Promise.all([api.get('/creditors'), api.get('/creditors/credit-sales'), api.get('/prices/current')])
-      .then(([cRes, csRes, pRes]) => { setCreditors(cRes.data); setCreditSales(csRes.data); setPrices(pRes.data) })
-      .catch(console.error).finally(() => setLoading(false))
+    loadData()
   }, [])
 
-  const handleSave = async () => {
+  const loadData = async () => {
+    try {
+      const [cRes, csRes, pRes] = await Promise.all([
+        api.get('/creditors'),
+        api.get('/creditors/credit-sales'),
+        api.get('/prices/current')
+      ])
+      setCreditors(cRes.data)
+      setCreditSales(csRes.data)
+      setPrices(pRes.data)
+      if (cRes.data.length > 0) {
+        setSaleForm(p => ({ ...p, creditor_id: cRes.data[0].id }))
+        setSelectedCreditor(cRes.data[0])
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveSale = async () => {
     setSaving(true)
     try {
-      await api.post('/creditors/credit-sales', form)
-      showToast('success', 'Credit sale saved', form.sale_date)
-      const res = await api.get('/creditors/credit-sales')
-      setCreditSales(res.data)
-    } catch (err) { showToast('error', 'Save failed', err.response?.data?.error) }
-    finally { setSaving(false) }
+      await api.post('/creditors/credit-sales', saleForm)
+      showToast('success', 'Credit sale saved', saleForm.sale_date)
+      await loadData()
+      setSaleForm(p => ({ ...p, sxp_litres: '0', dxp_litres: '', sxp_amount_ghs: '0', dxp_amount_ghs: '' }))
+    } catch (err) {
+      showToast('error', 'Save failed', err.response?.data?.error)
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const handleSaveCreditor = async () => {
+    setSaving(true)
+    try {
+      await api.post('/creditors', creditorForm)
+      showToast('success', 'Creditor added', creditorForm.name)
+      setShowAddCreditor(false)
+      setCreditorForm({ name: '', contact_name: '', contact_phone: '', credit_limit_ghs: '' })
+      await loadData()
+    } catch (err) {
+      showToast('error', 'Save failed', err.response?.data?.error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSavePayment = async () => {
+    setSaving(true)
+    try {
+      await api.post('/creditors/payments', { ...paymentForm, creditor_id: selectedCreditor.id })
+      showToast('success', 'Payment recorded', `GHS ${paymentForm.amount_ghs}`)
+      setShowPayment(false)
+      setPaymentForm({ payment_date: new Date().toISOString().split('T')[0], amount_ghs: '', payment_method: '', reference: '' })
+      await loadData()
+    } catch (err) {
+      showToast('error', 'Save failed', err.response?.data?.error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateDXP = (litres) => {
+    const price = parseFloat(prices.DXP?.price_per_litre || 0)
+    const amount = (parseFloat(litres) || 0) * price
+    setSaleForm(p => ({ ...p, dxp_litres: litres, dxp_amount_ghs: amount.toFixed(2) }))
+  }
+
+  const updateSXP = (litres) => {
+    const price = parseFloat(prices.SXP?.price_per_litre || 0)
+    const amount = (parseFloat(litres) || 0) * price
+    setSaleForm(p => ({ ...p, sxp_litres: litres, sxp_amount_ghs: amount.toFixed(2) }))
+  }
+
+  const totalSale = (parseFloat(saleForm.sxp_amount_ghs) || 0) + (parseFloat(saleForm.dxp_amount_ghs) || 0)
+
+  // Filter credit sales for selected creditor
+  const filteredSales = selectedCreditor
+    ? creditSales.filter(s => s.creditor_id === selectedCreditor.id)
+    : creditSales
+
+  const monthTotal = filteredSales.reduce((s, cs) => s + parseFloat(cs.total_amount_ghs || 0), 0)
 
   if (loading) return <div className="loading-screen">Loading creditors...</div>
 
   return (
     <div>
-      <div className="page-header"><div><h2>Creditors</h2><p>Credit sales and payment tracking</p></div></div>
-      {creditors.map(c => (
-        <div key={c.id} className="card mb-16">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-            <div><div style={{ fontSize:15, fontWeight:600, color:'var(--navy)' }}>{c.name}</div><div style={{ fontSize:12, color:'var(--text-3)' }}>{c.contact_name} · {c.contact_phone}</div></div>
-            <span className={`badge ${parseFloat(c.current_balance_ghs)>0?'badge-amber':'badge-green'}`}>Balance: GHS {parseFloat(c.current_balance_ghs).toLocaleString()}</span>
-          </div>
-          <div className="grid-3">
-            <div style={{ textAlign:'center', padding:12, background:'var(--red-subtle)', border:'1px solid var(--red-border)', borderRadius:'var(--r-md)' }}><div style={{ fontSize:10, color:'var(--red)', textTransform:'uppercase', marginBottom:4 }}>Balance owed</div><div style={{ fontSize:20, fontWeight:700, color:'var(--red)', fontFamily:'var(--font-mono)' }}>GHS {parseFloat(c.current_balance_ghs).toLocaleString()}</div></div>
-            <div style={{ textAlign:'center', padding:12, background:'var(--navy-light)', border:'1px solid var(--navy-border)', borderRadius:'var(--r-md)' }}><div style={{ fontSize:10, color:'var(--navy)', textTransform:'uppercase', marginBottom:4 }}>Credit limit</div><div style={{ fontSize:20, fontWeight:700, color:'var(--navy)', fontFamily:'var(--font-mono)' }}>GHS {parseFloat(c.credit_limit_ghs).toLocaleString()}</div></div>
-            <div style={{ textAlign:'center', padding:12, background:'var(--green-subtle)', border:'1px solid var(--green-border)', borderRadius:'var(--r-md)' }}><div style={{ fontSize:10, color:'var(--green)', textTransform:'uppercase', marginBottom:4 }}>Available</div><div style={{ fontSize:20, fontWeight:700, color:'var(--green)', fontFamily:'var(--font-mono)' }}>GHS {(parseFloat(c.credit_limit_ghs)-parseFloat(c.current_balance_ghs)).toLocaleString()}</div></div>
-          </div>
-        </div>
-      ))}
-      <div className="card mb-16">
-        <div className="card-header"><div className="card-title">New credit sale</div></div>
-        <div className="form-row">
-          <div className="form-group"><label className="form-label">Date</label><input className="form-input" type="date" value={form.sale_date} onChange={e => setForm(p=>({...p,sale_date:e.target.value}))} /></div>
-          <div className="form-group"><label className="form-label">Creditor</label><select className="form-select" value={form.creditor_id} onChange={e => setForm(p=>({...p,creditor_id:e.target.value}))}><option value="">Select creditor</option>{creditors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-        </div>
-        <div className="form-row">
-          <div className="form-group"><label className="form-label">DXP litres</label><input className="form-input" type="number" value={form.dxp_litres} onChange={e => { const l=e.target.value; const a=(parseFloat(l)||0)*(parseFloat(prices.DXP?.price_per_litre)||0); setForm(p=>({...p,dxp_litres:l,dxp_amount_ghs:a.toFixed(2)})) }} /></div>
-          <div className="form-group"><label className="form-label">DXP amount (GHS)</label><input className="form-input is-calc" value={form.dxp_amount_ghs} readOnly /></div>
-        </div>
-        <div style={{ display:'flex', justifyContent:'flex-end' }}>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}><i className="ph ph-floppy-disk"></i> {saving?'Saving...':'Save credit sale'}</button>
+      <div className="page-header">
+        <div><h2>Creditors</h2><p>Credit sales management and payment tracking</p></div>
+        <div className="page-header-actions">
+          <button className="btn btn-primary" onClick={() => setShowAddCreditor(true)}>
+            <i className="ph ph-plus"></i> Add creditor
+          </button>
         </div>
       </div>
+
+      {/* Add creditor modal */}
+      {showAddCreditor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 480, boxShadow: 'var(--shadow-md)' }}>
+            <div className="card-header">
+              <div className="card-title">Add new creditor</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAddCreditor(false)}><i className="ph ph-x"></i></button>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Company name</label>
+                <input className="form-input" value={creditorForm.name} onChange={e => setCreditorForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Merka Wood Company Ltd" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Credit limit (GHS)</label>
+                <input className="form-input" type="number" value={creditorForm.credit_limit_ghs} onChange={e => setCreditorForm(p => ({ ...p, credit_limit_ghs: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Contact name</label>
+                <input className="form-input" value={creditorForm.contact_name} onChange={e => setCreditorForm(p => ({ ...p, contact_name: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Contact phone</label>
+                <input className="form-input" value={creditorForm.contact_phone} onChange={e => setCreditorForm(p => ({ ...p, contact_phone: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setShowAddCreditor(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSaveCreditor} disabled={saving}>
+                <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : 'Save creditor'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record payment modal */}
+      {showPayment && selectedCreditor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 440, boxShadow: 'var(--shadow-md)' }}>
+            <div className="card-header">
+              <div className="card-title">Record payment — {selectedCreditor.name}</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPayment(false)}><i className="ph ph-x"></i></button>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input className="form-input" type="date" value={paymentForm.payment_date} onChange={e => setPaymentForm(p => ({ ...p, payment_date: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount (GHS)</label>
+                <input className="form-input" type="number" value={paymentForm.amount_ghs} onChange={e => setPaymentForm(p => ({ ...p, amount_ghs: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Payment method</label>
+                <select className="form-select" value={paymentForm.payment_method} onChange={e => setPaymentForm(p => ({ ...p, payment_method: e.target.value }))}>
+                  <option value="">Select</option>
+                  <option>Cash</option>
+                  <option>Bank transfer</option>
+                  <option>Cheque</option>
+                  <option>MoMo</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Reference</label>
+                <input className="form-input" value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} placeholder="Optional" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setShowPayment(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSavePayment} disabled={saving}>
+                <i className="ph ph-check"></i> {saving ? 'Saving...' : 'Record payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid-2 mb-16">
+        {/* Creditor cards */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {creditors.map(c => (
+            <div key={c.id} className="card" style={{ cursor: 'pointer', borderColor: selectedCreditor?.id === c.id ? 'var(--navy-border)' : 'var(--border)' }}
+              onClick={() => { setSelectedCreditor(c); setSaleForm(p => ({ ...p, creditor_id: c.id })) }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy)' }}>{c.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{c.contact_name} · {c.contact_phone}</div>
+                </div>
+                <span className={`badge ${parseFloat(c.current_balance_ghs) > 0 ? 'badge-red' : 'badge-green'}`}>
+                  {parseFloat(c.current_balance_ghs) > 0 ? 'Overdue' : 'Clear'}
+                </span>
+              </div>
+              <div className="grid-3" style={{ marginBottom: 12 }}>
+                <div style={{ textAlign: 'center', padding: 10, background: 'var(--red-subtle)', border: '1px solid var(--red-border)', borderRadius: 'var(--r-md)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--red)', textTransform: 'uppercase', marginBottom: 4 }}>Balance owed</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--font-mono)' }}>{parseFloat(c.current_balance_ghs).toLocaleString()}</div>
+                </div>
+                <div style={{ textAlign: 'center', padding: 10, background: 'var(--navy-light)', border: '1px solid var(--navy-border)', borderRadius: 'var(--r-md)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--navy)', textTransform: 'uppercase', marginBottom: 4 }}>Credit limit</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--font-mono)' }}>{parseFloat(c.credit_limit_ghs).toLocaleString()}</div>
+                </div>
+                <div style={{ textAlign: 'center', padding: 10, background: 'var(--amber-subtle)', border: '1px solid var(--amber-border)', borderRadius: 'var(--r-md)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--amber)', textTransform: 'uppercase', marginBottom: 4 }}>Available</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}>{(parseFloat(c.credit_limit_ghs) - parseFloat(c.current_balance_ghs)).toLocaleString()}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary btn-sm" onClick={e => { e.stopPropagation(); setSelectedCreditor(c); setShowPayment(true) }}>
+                  <i className="ph ph-check"></i> Record payment
+                </button>
+                <button className="btn btn-ghost btn-sm"><i className="ph ph-file-text"></i> Statement</button>
+              </div>
+            </div>
+          ))}
+          {creditors.length === 0 && (
+            <div className="card" style={{ textAlign: 'center', padding: 32 }}>
+              <i className="ph ph-users-three" style={{ fontSize: 32, color: 'var(--text-3)', display: 'block', marginBottom: 12 }}></i>
+              <div style={{ fontSize: 13, color: 'var(--text-3)' }}>No creditors yet. Add one above.</div>
+            </div>
+          )}
+        </div>
+
+        {/* New credit sale form */}
+        <div className="card">
+          <div className="card-header"><div className="card-title">New credit sale</div></div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Date</label>
+              <input className="form-input" type="date" value={saleForm.sale_date} onChange={e => setSaleForm(p => ({ ...p, sale_date: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Creditor</label>
+              <select className="form-select" value={saleForm.creditor_id} onChange={e => setSaleForm(p => ({ ...p, creditor_id: e.target.value }))}>
+                {creditors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">SXP litres</label>
+              <input className="form-input" type="number" placeholder="0.00" value={saleForm.sxp_litres} onChange={e => updateSXP(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">DXP litres</label>
+              <input className="form-input" type="number" placeholder="0.00" value={saleForm.dxp_litres} onChange={e => updateDXP(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">SXP amount (GHS)</label>
+              <input className="form-input is-calc" value={saleForm.sxp_amount_ghs} readOnly />
+            </div>
+            <div className="form-group">
+              <label className="form-label">DXP amount (GHS)</label>
+              <input className="form-input is-calc" value={saleForm.dxp_amount_ghs} readOnly />
+            </div>
+          </div>
+          <div style={{ background: 'var(--navy-light)', border: '1px solid var(--navy-border)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>
+            <span>Total amount</span>
+            <span className="td-calc">GHS {totalSale.toFixed(2)}</span>
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSaveSale} disabled={saving}>
+            <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : 'Save credit sale'}
+          </button>
+        </div>
+      </div>
+
+      {/* Credit history table */}
       <div className="card">
-        <div className="card-header"><div className="card-title">Credit sales history</div></div>
+        <div className="card-header">
+          <div className="card-title">{selectedCreditor?.name || 'All creditors'} — credit history</div>
+        </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Creditor</th><th>DXP (L)</th><th>DXP amt</th><th>Total</th></tr></thead>
+            <thead>
+              <tr><th>Date</th><th>SXP (L)</th><th>DXP (L)</th><th>SXP amt</th><th>DXP amt</th><th>Total</th></tr>
+            </thead>
             <tbody>
-              {creditSales.slice(0,20).map(s => (
-                <tr key={s.id}><td>{s.sale_date}</td><td>{s.creditors?.name}</td><td className="td-calc">{parseFloat(s.dxp_litres).toFixed(2)}</td><td className="td-calc">GHS {parseFloat(s.dxp_amount_ghs).toFixed(2)}</td><td className="td-calc">GHS {parseFloat(s.total_amount_ghs).toFixed(2)}</td></tr>
+              {filteredSales.slice(0, 20).map(s => (
+                <tr key={s.id}>
+                  <td>{s.sale_date}</td>
+                  <td className="td-calc">{parseFloat(s.sxp_litres).toFixed(2)}</td>
+                  <td className="td-calc">{parseFloat(s.dxp_litres).toFixed(2)}</td>
+                  <td className="td-calc">{parseFloat(s.sxp_amount_ghs) > 0 ? parseFloat(s.sxp_amount_ghs).toFixed(2) : '—'}</td>
+                  <td className="td-calc">{parseFloat(s.dxp_amount_ghs).toFixed(2)}</td>
+                  <td className="td-calc" style={{ fontWeight: 700 }}>GHS {parseFloat(s.total_amount_ghs).toFixed(2)}</td>
+                </tr>
               ))}
-              {creditSales.length===0 && <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>No credit sales yet</td></tr>}
+              {filteredSales.length === 0 && (
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No credit sales yet</td></tr>
+              )}
+              {filteredSales.length > 0 && (
+                <tr className="tr-total">
+                  <td><strong>Total</strong></td>
+                  <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.sxp_litres || 0), 0).toFixed(2)}</strong></td>
+                  <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.dxp_litres || 0), 0).toFixed(2)}</strong></td>
+                  <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.sxp_amount_ghs || 0), 0).toFixed(2)}</strong></td>
+                  <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.dxp_amount_ghs || 0), 0).toFixed(2)}</strong></td>
+                  <td className="td-calc" style={{ fontWeight: 700 }}>GHS {monthTotal.toFixed(2)}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

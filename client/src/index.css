@@ -1,47 +1,80 @@
 /* ============================================================
-   DESIGN TOKENS
+   DESIGN TOKENS — GOIL Kuntunso Brand
    ============================================================ */
    :root {
+    /* ── Orange (primary brand) ── */
+    --orange:        #E8671A;
+    --orange-hover:  #C4521A;
+    --orange-subtle: #FEF3EB;
+    --orange-border: #F9C9A4;
+  
+    /* ── Charcoal (replaces navy) ── */
+    --charcoal:      #1C1C1E;
+    --charcoal-mid:  #2D2D30;
+    --charcoal-light:#FEF3EB;
+    --charcoal-border:#F9C9A4;
+  
+    /* Keep navy tokens pointing to charcoal so existing component
+       references (var(--navy) etc.) keep working without a sweep */
+    --navy:        #1C1C1E;
+    --navy-mid:    #2D2D30;
+    --navy-light:  #FEF3EB;
+    --navy-border: #F9C9A4;
+  
+    /* ── Semantic — unchanged ── */
     --red:        #C41E1E;
     --red-hover:  #A81A1A;
     --red-subtle: #FDF1F1;
     --red-border: #F5C6C6;
-    --navy:       #0D2844;
-    --navy-mid:   #1A4070;
-    --navy-light: #EBF2FB;
-    --navy-border:#C5D8EF;
+  
     --green:        #1A6B3A;
     --green-subtle: #EDF7F1;
     --green-border: #B3DECA;
+  
     --amber:        #92530A;
     --amber-subtle: #FDF5E6;
     --amber-border: #F5D9A0;
+  
     --blue:         #1648A0;
     --blue-subtle:  #EBF1FB;
     --blue-border:  #B3CAF0;
-    --bg:          #F2F4F7;
-    --surface:     #FFFFFF;
-    --surface-2:   #F7F8FA;
-    --border:      #E4E8EF;
+  
+    /* ── Neutrals ── */
+    --bg:           #F2F4F7;
+    --surface:      #FFFFFF;
+    --surface-2:    #F7F8FA;
+    --border:       #E4E8EF;
     --border-strong:#C8CDD8;
-    --text-1:      #0D1B2E;
-    --text-2:      #445570;
-    --text-3:      #7A8BA0;
-    --sidebar-bg:     #0D2844;
+    --text-1:       #0D1B2E;
+    --text-2:       #445570;
+    --text-3:       #7A8BA0;
+  
+    /* ── Sidebar ── */
+    --sidebar-bg:     #1C1C1E;
     --sidebar-text:   rgba(255,255,255,0.62);
-    --sidebar-active: #C41E1E;
+    --sidebar-active: #E8671A;
     --sidebar-hover:  rgba(255,255,255,0.07);
     --sidebar-border: rgba(255,255,255,0.08);
+  
+    /* ── Calculated fields — unchanged (blue per PRD) ── */
     --calc-bg:    #EBF1FB;
     --calc-text:  #1648A0;
     --calc-border:#B3CAF0;
+  
+    /* ── Radius ── */
     --r-sm:  6px;
     --r-md:  8px;
     --r-lg:  12px;
-    --shadow-sm: 0 1px 3px rgba(13,28,68,0.06), 0 1px 2px rgba(13,28,68,0.04);
-    --shadow-md: 0 4px 12px rgba(13,28,68,0.08), 0 2px 4px rgba(13,28,68,0.05);
-    --font: 'DM Sans', system-ui, sans-serif;
+  
+    /* ── Shadows ── */
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.05);
+  
+    /* ── Typography ── */
+    --font:      'DM Sans', system-ui, sans-serif;
     --font-mono: 'DM Mono', monospace;
+  
+    /* ── Layout ── */
     --sidebar-w: 232px;
     --topbar-h:  56px;
   }
@@ -49,7 +82,7 @@
   /* ============================================================
      RESET & BASE
      ============================================================ */
-  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   html { font-size: 14px; }
   body {
     font-family: var(--font);
@@ -92,12 +125,19 @@
     text-decoration: none;
   }
   .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-primary  { background: var(--navy); color: #fff; }
-  .btn-primary:hover:not(:disabled)  { background: var(--navy-mid); }
-  .btn-danger   { background: var(--red); color: #fff; }
-  .btn-danger:hover:not(:disabled)   { background: var(--red-hover); }
-  .btn-ghost    { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
-  .btn-ghost:hover:not(:disabled)    { background: var(--surface-2); }
+  
+  /* Primary → GOIL orange */
+  .btn-primary { background: var(--orange); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--orange-hover); }
+  
+  /* Danger → red (unchanged) */
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled)  { background: var(--red-hover); }
+  
+  /* Ghost → unchanged */
+  .btn-ghost   { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled)   { background: var(--surface-2); }
+  
   .btn-sm { padding: 5px 10px; font-size: 12px; }
   
   /* ============================================================
@@ -116,7 +156,7 @@
     justify-content: space-between;
     margin-bottom: 16px;
   }
-  .card-title { font-size: 13px; font-weight: 600; color: var(--navy); }
+  .card-title    { font-size: 13px; font-weight: 600; color: var(--charcoal); }
   .card-subtitle { font-size: 11px; color: var(--text-3); margin-top: 2px; }
   
   /* ============================================================
@@ -129,7 +169,7 @@
     margin-bottom: 20px;
     gap: 16px;
   }
-  .page-header h2 { font-size: 20px; font-weight: 700; color: var(--navy); }
+  .page-header h2 { font-size: 20px; font-weight: 700; color: var(--charcoal); }
   .page-header p  { font-size: 12px; color: var(--text-3); margin-top: 3px; }
   .page-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
   
@@ -139,13 +179,20 @@
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
   .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
-  .mb-16 { margin-bottom: 16px; }
-  .mb-20 { margin-bottom: 20px; }
+  .mb-16  { margin-bottom: 16px; }
+  .mb-20  { margin-bottom: 20px; }
   
   /* ============================================================
      KPI CARDS
+     KPI accent colors follow strict PRD semantics — do not change:
+     red=revenue  blue=volume  amber=risk  green=banking/dealer
      ============================================================ */
-  .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4,1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
   .kpi-card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -166,8 +213,10 @@
   .kpi-blue::before   { background: var(--blue); }
   .kpi-amber::before  { background: var(--amber); }
   .kpi-green::before  { background: var(--green); }
+  .kpi-orange::before { background: var(--orange); }
+  
   .kpi-label { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-  .kpi-value { font-size: 24px; font-weight: 700; color: var(--navy); line-height: 1.1; }
+  .kpi-value { font-size: 24px; font-weight: 700; color: var(--charcoal); line-height: 1.1; }
   .kpi-sub   { font-size: 11px; color: var(--text-3); margin-top: 5px; }
   .kpi-sub.positive { color: var(--green); }
   .kpi-sub.negative { color: var(--red); }
@@ -181,6 +230,7 @@
   .form-row-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 10px; }
   .form-group { display: flex; flex-direction: column; gap: 5px; }
   .form-label { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.4px; }
+  
   .form-input, .form-select, .form-textarea {
     padding: 8px 10px;
     border: 1px solid var(--border);
@@ -192,11 +242,14 @@
     transition: border-color 0.12s;
     width: 100%;
   }
+  /* Focus ring → orange */
   .form-input:focus, .form-select:focus {
     outline: none;
-    border-color: var(--navy-mid);
-    box-shadow: 0 0 0 3px var(--navy-light);
+    border-color: var(--orange);
+    box-shadow: 0 0 0 3px var(--orange-subtle);
   }
+  
+  /* Calculated field — blue per PRD, unchanged */
   .form-input.is-calc {
     background: var(--calc-bg);
     color: var(--calc-text);
@@ -219,8 +272,9 @@
      ============================================================ */
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  
   thead th {
-    background: var(--navy);
+    background: var(--charcoal);
     color: rgba(255,255,255,0.85);
     padding: 9px 12px;
     text-align: left;
@@ -230,11 +284,24 @@
     letter-spacing: 0.5px;
     white-space: nowrap;
   }
-  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-1); vertical-align: middle; }
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-1);
+    vertical-align: middle;
+  }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover td { background: var(--surface-2); }
+  
   .td-calc { color: var(--calc-text); font-weight: 500; font-family: var(--font-mono); font-size: 12px; }
-  .tr-total td { background: var(--navy-light); font-weight: 600; color: var(--navy); border-bottom: none; }
+  
+  /* Total row — orange subtle */
+  .tr-total td {
+    background: var(--orange-subtle);
+    font-weight: 600;
+    color: var(--charcoal);
+    border-bottom: none;
+  }
   
   /* ============================================================
      BADGES
@@ -248,12 +315,13 @@
     font-size: 11px;
     font-weight: 500;
   }
-  .badge-green  { background: var(--green-subtle);  color: var(--green);  border: 1px solid var(--green-border); }
-  .badge-red    { background: var(--red-subtle);    color: var(--red);    border: 1px solid var(--red-border); }
-  .badge-amber  { background: var(--amber-subtle);  color: var(--amber);  border: 1px solid var(--amber-border); }
-  .badge-blue   { background: var(--blue-subtle);   color: var(--blue);   border: 1px solid var(--blue-border); }
-  .badge-navy   { background: var(--navy-light);    color: var(--navy);   border: 1px solid var(--navy-border); }
-  .badge-neutral{ background: var(--surface-2);     color: var(--text-2); border: 1px solid var(--border); }
+  .badge-green   { background: var(--green-subtle);   color: var(--green);   border: 1px solid var(--green-border); }
+  .badge-red     { background: var(--red-subtle);     color: var(--red);     border: 1px solid var(--red-border); }
+  .badge-amber   { background: var(--amber-subtle);   color: var(--amber);   border: 1px solid var(--amber-border); }
+  .badge-blue    { background: var(--blue-subtle);    color: var(--blue);    border: 1px solid var(--blue-border); }
+  /* badge-navy → charcoal tint (orange family) */
+  .badge-navy    { background: var(--orange-subtle);  color: var(--charcoal); border: 1px solid var(--orange-border); }
+  .badge-neutral { background: var(--surface-2);      color: var(--text-2);  border: 1px solid var(--border); }
   
   /* ============================================================
      ALERTS

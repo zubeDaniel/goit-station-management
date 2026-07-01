@@ -4,16 +4,25 @@ const { supabaseAdmin } = require('../config/supabase');
 const { authenticate, adminOrManager } = require('../middleware/auth');
 
 // GET /api/deliveries
+// GET /api/deliveries
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
+    const { start_date, end_date, date, tank_id } = req.query;
+
     let query = supabaseAdmin
       .from('tanker_deliveries')
       .select('*')
       .order('delivery_date', { ascending: false });
 
+    // Exact date filter — used by MeterBook and TankStock delivery checkbox
+    if (date) query = query.eq('delivery_date', date);
+
+    // Tank filter — used by TankStock to get the right tank's delivery
+    if (tank_id) query = query.eq('tank_id', tank_id);
+
+    // Range filters — used by delivery history views
     if (start_date) query = query.gte('delivery_date', start_date);
-    if (end_date) query = query.lte('delivery_date', end_date);
+    if (end_date)   query = query.lte('delivery_date', end_date);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });

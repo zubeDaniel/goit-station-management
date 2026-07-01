@@ -51,6 +51,8 @@ app.use('/api/audit', require('./routes/audit'));
 console.log('Loading suggestions...');
 app.use('/api/suggestions', require('./routes/suggestions'));
 console.log('All routes loaded.');
+app.use('/api/pdf', require('./routes/pdf'));
+console.log('Loading pdf...');
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
