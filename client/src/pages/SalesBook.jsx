@@ -39,16 +39,20 @@ export default function SalesBook() {
     }
   }
 
-  // Auto-fill Merka Wood from today's credit sales
+  // Auto-fill Merka Wood from credit sales, and meter amount from pump readings,
+  // for whichever date is selected — not just today
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
-    if (form.entry_date === today) {
-      api.get(`/creditors/credit-sales?start_date=${today}&end_date=${today}`)
-        .then(res => {
-          const total = res.data.reduce((s, cs) => s + parseFloat(cs.total_amount_ghs || 0), 0)
-          setForm(p => ({ ...p, merka_wood_ghs: total.toFixed(2) }))
-        }).catch(() => {})
-    }
+    api.get(`/creditors/credit-sales?start_date=${form.entry_date}&end_date=${form.entry_date}`)
+      .then(res => {
+        const total = res.data.reduce((s, cs) => s + parseFloat(cs.total_amount_ghs || 0), 0)
+        setForm(p => ({ ...p, merka_wood_ghs: total.toFixed(2) }))
+      }).catch(() => {})
+
+    api.get(`/meter?start_date=${form.entry_date}&end_date=${form.entry_date}`)
+      .then(res => {
+        const total = res.data.reduce((s, r) => s + parseFloat(r.amount_ghs || 0), 0)
+        setForm(p => ({ ...p, meter_amount_ghs: total.toFixed(2) }))
+      }).catch(() => {})
   }, [form.entry_date])
 
   const handleSave = async () => {

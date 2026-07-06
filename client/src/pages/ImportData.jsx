@@ -144,9 +144,8 @@ export default function ImportData() {
               fuel_type: cfg.fuel,
               opening_meter: parseFloat(row[cfg.open]) || 0,
               closing_meter: parseFloat(row[cfg.close]) || 0,
-              amount_ghs: parseFloat(row[cfg.amt]) || 0,
               rtt_litres: parseFloat(row[cfg.rtt]) || 0
-            }).then(() => imported++).catch(() => skipped++)
+            }).then(() => imported++).catch(err => { skipped++; warnings.push(`${date} ${cfg.pump} ${cfg.fuel}: ${err.response?.data?.error || err.message}`) })
           }
         }
 
@@ -160,7 +159,7 @@ export default function ImportData() {
             genset_ghs: parseFloat(row['Genset'] || row['genset'] || 0),
             lubricant_ghs: parseFloat(row['Lubricant'] || row['lubricant'] || 0),
             meter_amount_ghs: parseFloat(row['Meter Amount'] || row['meter_amount'] || row['Meter'] || 0),
-          }).then(() => imported++).catch(() => skipped++)
+          }).then(() => imported++).catch(err => { skipped++; warnings.push(`${date}: ${err.response?.data?.error || err.message}`) })
         }
 
         if (type === 'banking') {
@@ -171,8 +170,7 @@ export default function ImportData() {
             gocard_ghs: parseFloat(row['GoCard'] || row['gocard'] || row['Go Card'] || 0),
             coupons_50_ghs: parseFloat(row['Coupons 50'] || row['Coupons @50'] || row['coupons_50'] || 0),
             coupons_100_ghs: parseFloat(row['Coupons 100'] || row['Coupons @100'] || row['coupons_100'] || 0),
-            variance_vs_sales: 0,
-          }).then(() => imported++).catch(() => skipped++)
+          }).then(() => imported++).catch(err => { skipped++; warnings.push(`${date}: ${err.response?.data?.error || err.message}`) })
         }
 
         if (type === 'creditors' && creditorId) {
@@ -184,9 +182,10 @@ export default function ImportData() {
             creditor_id: creditorId,
             sxp_litres: sxpLitres,
             dxp_litres: dxpLitres,
-            sxp_amount_ghs: parseFloat(row['SXP Amount'] || 0),
-            dxp_amount_ghs: parseFloat(row['DXP Amount'] || row['Amount'] || 0),
-          }).then(() => imported++).catch(() => skipped++)
+          }).then(() => imported++).catch(err => { skipped++; warnings.push(`${date}: ${err.response?.data?.error || err.message}`) })
+        } else if (type === 'creditors' && !creditorId) {
+          skipped++
+          warnings.push(`${date}: skipped — Merka Wood creditor not found, add it in Creditors first`)
         }
 
         if (type === 'expenses') {
@@ -196,7 +195,7 @@ export default function ImportData() {
             amount_ghs: parseFloat(row['Amount'] || row['amount'] || row['Amount (GHS)'] || 0),
             description: row['Description'] || row['description'] || row['Details'] || 'Imported',
             receipt_number: row['Receipt'] || row['receipt'] || row['Receipt No'] || '',
-          }).then(() => imported++).catch(() => skipped++)
+          }).then(() => imported++).catch(err => { skipped++; warnings.push(`${date}: ${err.response?.data?.error || err.message}`) })
         }
 
       } catch (err) {

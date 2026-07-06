@@ -28,13 +28,28 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
   try {
     const {
       entry_date, nib_ghs, umb_momo_ghs,
-      gocard_ghs, coupons_50_ghs, coupons_100_ghs,
-      variance_vs_sales
+      gocard_ghs, coupons_50_ghs, coupons_100_ghs
     } = req.body;
 
     if (!entry_date) {
       return res.status(400).json({ error: 'entry_date is required' });
     }
+
+    const total_banked_ghs =
+      (parseFloat(nib_ghs) || 0) +
+      (parseFloat(umb_momo_ghs) || 0) +
+      (parseFloat(gocard_ghs) || 0) +
+      (parseFloat(coupons_50_ghs) || 0) +
+      (parseFloat(coupons_100_ghs) || 0);
+
+    // variance_vs_sales = total_banked − sales_book total for the same date
+    const { data: salesRow } = await supabaseAdmin
+      .from('sales_book')
+      .select('total_sales_ghs')
+      .eq('entry_date', entry_date)
+      .maybeSingle();
+
+    const variance_vs_sales = total_banked_ghs - (parseFloat(salesRow?.total_sales_ghs) || 0);
 
     const { data, error } = await supabaseAdmin
       .from('banking')
@@ -45,7 +60,8 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
         gocard_ghs: gocard_ghs || 0,
         coupons_50_ghs: coupons_50_ghs || 0,
         coupons_100_ghs: coupons_100_ghs || 0,
-        variance_vs_sales: variance_vs_sales || 0,
+        total_banked_ghs,
+        variance_vs_sales,
         created_by: req.user.id
       })
       .select()

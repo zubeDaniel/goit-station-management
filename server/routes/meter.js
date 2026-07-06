@@ -30,7 +30,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     const {
       reading_date, pump_id, fuel_type,
       attendant_id, opening_meter, closing_meter,
-      amount_ghs, rtt_litres
+      rtt_litres
     } = req.body;
 
     if (!reading_date || !pump_id || !fuel_type || closing_meter === undefined) {
@@ -41,12 +41,27 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'Closing meter cannot be less than opening meter' });
     }
 
+    const litres_sold = parseFloat(closing_meter) - parseFloat(opening_meter || 0);
+
+    // Effective price for this fuel type as of reading_date — not "current" price
+    const { data: priceRow } = await supabaseAdmin
+      .from('fuel_prices')
+      .select('price_per_litre')
+      .eq('fuel_type', fuel_type)
+      .lte('effective_date', reading_date)
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const amount_ghs = litres_sold * (parseFloat(priceRow?.price_per_litre) || 0);
+
     const { data, error } = await supabaseAdmin
       .from('pump_meter_readings')
       .insert({
         reading_date, pump_id, fuel_type,
         attendant_id, opening_meter, closing_meter,
-        amount_ghs: amount_ghs || 0,
+        litres_sold,
+        amount_ghs,
         rtt_litres: rtt_litres || 0,
         created_by: req.user.id
       })
@@ -63,14 +78,35 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 // PUT /api/meter/:id
 router.put('/:id', authenticate, adminOrManager, async (req, res) => {
   try {
-    const {
-      closing_meter, attendant_id,
-      amount_ghs, rtt_litres
-    } = req.body;
+    const { closing_meter, attendant_id, rtt_litres } = req.body;
+
+    const { data: existing, error: fetchError } = await supabaseAdmin
+      .from('pump_meter_readings')
+      .select('reading_date, fuel_type, opening_meter, closing_meter')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchError || !existing) {
+      return res.status(404).json({ error: 'Meter reading not found' });
+    }
+
+    const finalClosing = closing_meter !== undefined ? closing_meter : existing.closing_meter;
+    const litres_sold = parseFloat(finalClosing) - parseFloat(existing.opening_meter || 0);
+
+    const { data: priceRow } = await supabaseAdmin
+      .from('fuel_prices')
+      .select('price_per_litre')
+      .eq('fuel_type', existing.fuel_type)
+      .lte('effective_date', existing.reading_date)
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const amount_ghs = litres_sold * (parseFloat(priceRow?.price_per_litre) || 0);
 
     const { data, error } = await supabaseAdmin
       .from('pump_meter_readings')
-      .update({ closing_meter, attendant_id, amount_ghs, rtt_litres })
+      .update({ closing_meter, attendant_id, litres_sold, amount_ghs, rtt_litres })
       .eq('id', req.params.id)
       .select()
       .single();

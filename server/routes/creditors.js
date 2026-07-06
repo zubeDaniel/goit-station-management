@@ -72,7 +72,26 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'sale_date and creditor_id are required' });
     }
 
-    const total = (parseFloat(sxp_amount_ghs) || 0) + (parseFloat(dxp_amount_ghs) || 0);
+    // Recompute amounts server-side using the price effective on sale_date —
+    // not whatever the client sent, which uses "current" price regardless of
+    // which date was actually selected (wrong when backfilling a past date)
+    const getEffectivePrice = async (fuelType) => {
+      const { data: priceRow } = await supabaseAdmin
+        .from('fuel_prices')
+        .select('price_per_litre')
+        .eq('fuel_type', fuelType)
+        .lte('effective_date', sale_date)
+        .order('effective_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return parseFloat(priceRow?.price_per_litre) || 0;
+    };
+
+    const sxpPrice = await getEffectivePrice('SXP');
+    const dxpPrice = await getEffectivePrice('DXP');
+    const computedSxpAmount = (parseFloat(sxp_litres) || 0) * sxpPrice;
+    const computedDxpAmount = (parseFloat(dxp_litres) || 0) * dxpPrice;
+    const total = computedSxpAmount + computedDxpAmount;
 
     const { data, error } = await supabaseAdmin
       .from('credit_sales')
@@ -80,8 +99,9 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
         sale_date, creditor_id,
         sxp_litres: sxp_litres || 0,
         dxp_litres: dxp_litres || 0,
-        sxp_amount_ghs: sxp_amount_ghs || 0,
-        dxp_amount_ghs: dxp_amount_ghs || 0,
+        sxp_amount_ghs: computedSxpAmount,
+        dxp_amount_ghs: computedDxpAmount,
+        total_amount_ghs: total,
         created_by: req.user.id
       })
       .select()
@@ -90,16 +110,20 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
 
     // Update creditor balance
-    await supabaseAdmin.rpc('increment_creditor_balance', {
-      p_creditor_id: creditor_id,
-      p_amount: total
-    }).catch(() => {
-      // If RPC doesn't exist yet, update manually
-      supabaseAdmin
+    const { data: creditor } = await supabaseAdmin
+      .from('creditors')
+      .select('current_balance_ghs')
+      .eq('id', creditor_id)
+      .single();
+
+    if (creditor) {
+      const newBalance = parseFloat(creditor.current_balance_ghs || 0) + total;
+      const { error: balanceError } = await supabaseAdmin
         .from('creditors')
-        .update({ current_balance_ghs: supabaseAdmin.raw(`current_balance_ghs + ${total}`) })
+        .update({ current_balance_ghs: newBalance })
         .eq('id', creditor_id);
-    });
+      if (balanceError) console.error('Failed to update creditor balance:', balanceError.message);
+    }
 
     res.status(201).json(data);
   } catch (err) {

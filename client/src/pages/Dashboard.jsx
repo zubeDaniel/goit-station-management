@@ -48,7 +48,7 @@ export default function Dashboard() {
       api.get(`/tank-stock?start_date=${today}&end_date=${today}`),
       api.get('/creditors'),
       api.get(`/banking?start_date=${monthStart}&end_date=${today}`),
-      api.get('/audit?limit=5'),
+      user?.role === 'admin' ? api.get('/audit?limit=5') : Promise.resolve({ data: [] }),
     ]).then(([setupRes, compRes, meterRes, tankRes, credRes, bankRes, auditRes]) => {
       setSetup(setupRes.data)
       setCompliance(compRes.data)
@@ -289,11 +289,13 @@ export default function Dashboard() {
               </div>
             ))
           )}
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/audit')} style={{ fontSize: 11 }}>
-              View full audit log <i className="ph ph-arrow-right"></i>
-            </button>
-          </div>
+          {user?.role === 'admin' && (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/audit')} style={{ fontSize: 11 }}>
+                View full audit log <i className="ph ph-arrow-right"></i>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

@@ -12,7 +12,26 @@ router.get('/', authenticate, adminOrManager, async (req, res) => {
       .is('deleted_at', null)
       .order('expiry_date');
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+
+    // Derive status from the actual date rather than trusting a stored value
+    // that nothing ever recomputes as time passes. 'archived' is an explicit
+    // terminal state set by an Admin and is left untouched.
+    const today = new Date().toISOString().split('T')[0];
+    const withComputedStatus = (data || []).map(cert => {
+      if (cert.status === 'archived') return cert;
+      const alertDays = cert.alert_days_before || 30;
+      const warningThreshold = new Date(cert.expiry_date);
+      warningThreshold.setDate(warningThreshold.getDate() - alertDays);
+      const warningDateStr = warningThreshold.toISOString().split('T')[0];
+
+      let status = 'valid';
+      if (cert.expiry_date < today) status = 'expired';
+      else if (warningDateStr <= today) status = 'warning';
+
+      return { ...cert, status };
+    });
+
+    res.json(withComputedStatus);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch compliance certificates' });
   }

@@ -46,6 +46,39 @@ export default function TankStock() {
       .finally(() => setLoading(false))
   }, [])
 
+  // ── Auto-fill opening stock (from previous closing dip) and litres sold
+  //    (from actual pump meter readings for this date) — stays editable so
+  //    a supervisor can correct it if Meter Book wasn't entered yet that day.
+  useEffect(() => {
+    if (loading) return
+
+    setForm(prev => {
+      const updated = { ...prev }
+      TANKS.forEach(({ tankId }) => {
+        const prior = stocks
+          .filter(s => s.tank_id === tankId && s.stock_date < prev.stock_date)
+          .sort((a, b) => b.stock_date.localeCompare(a.stock_date))[0]
+        if (prior) {
+          updated[tankId] = { ...updated[tankId], opening_stock: parseFloat(prior.closing_stock_dip).toFixed(2) }
+        }
+      })
+      return updated
+    })
+
+    api.get(`/meter?start_date=${form.stock_date}&end_date=${form.stock_date}`)
+      .then(res => {
+        const readings = res.data || []
+        const sxpTotal = readings.filter(r => r.fuel_type === 'SXP').reduce((s, r) => s + (parseFloat(r.litres_sold) || 0), 0)
+        const dxpTotal = readings.filter(r => r.fuel_type === 'DXP').reduce((s, r) => s + (parseFloat(r.litres_sold) || 0), 0)
+        setForm(prev => ({
+          ...prev,
+          TANK_A: { ...prev.TANK_A, litres_sold: sxpTotal.toFixed(2) },
+          TANK_B: { ...prev.TANK_B, litres_sold: dxpTotal.toFixed(2) },
+        }))
+      })
+      .catch(console.error)
+  }, [stocks, form.stock_date, loading])
+
   // ── Variance calculations ──────────────────────────────────
   // actual_variance  = closing_dip − (opening + actual_delivery  − sold)
   // expected_variance = closing_dip − (opening + waybill_expected − sold)

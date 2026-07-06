@@ -78,7 +78,9 @@ router.post('/reset/soft', authenticate, adminOnly, async (req, res) => {
 
     // Clear setup data only — preserve operational data
     // audit_log is NEVER cleared
-    await supabaseAdmin
+    const failures = [];
+
+    const { error: setupErr } = await supabaseAdmin
       .from('station_setup')
       .update({
         setup_completed: false,
@@ -86,16 +88,24 @@ router.post('/reset/soft', authenticate, adminOnly, async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
+    if (setupErr) failures.push(`station_setup: ${setupErr.message}`);
 
-    await supabaseAdmin
+    const { error: pricesErr } = await supabaseAdmin
       .from('fuel_prices')
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000');
+    if (pricesErr) failures.push(`fuel_prices: ${pricesErr.message}`);
 
-    await supabaseAdmin
+    const { error: attendantsErr } = await supabaseAdmin
       .from('attendants')
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000');
+    if (attendantsErr) failures.push(`attendants: ${attendantsErr.message}`);
+
+    if (failures.length > 0) {
+      console.error('Soft reset partial failure:', failures);
+      return res.status(500).json({ error: 'Soft reset partially failed', details: failures });
+    }
 
     res.json({ message: 'Soft reset complete. Operational data preserved. Audit log untouched.' });
   } catch (err) {
@@ -131,16 +141,18 @@ router.post('/reset/full', authenticate, adminOnly, async (req, res) => {
       'price_update_suggestions',
       'attendants',
     ];
+    const failures = [];
 
     for (const table of tables) {
-      await supabaseAdmin
+      const { error: delErr } = await supabaseAdmin
         .from(table)
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000');
+      if (delErr) failures.push(`${table}: ${delErr.message}`);
     }
 
     const id = await getSetupId();
-    await supabaseAdmin
+    const { error: setupErr } = await supabaseAdmin
       .from('station_setup')
       .update({
         setup_completed: false,
@@ -148,6 +160,12 @@ router.post('/reset/full', authenticate, adminOnly, async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
+    if (setupErr) failures.push(`station_setup: ${setupErr.message}`);
+
+    if (failures.length > 0) {
+      console.error('Full reset partial failure:', failures);
+      return res.status(500).json({ error: 'Full reset partially failed', details: failures });
+    }
 
     res.json({ message: 'Full reset complete. Audit log untouched.' });
   } catch (err) {

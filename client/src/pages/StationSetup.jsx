@@ -151,9 +151,8 @@ export default function StationSetup() {
             pump_id:       entry.pump_id,
             fuel_type:     entry.fuel_type,
             attendant_id:  null,
-            opening_meter: 0,
+            opening_meter: parseFloat(entry.value),
             closing_meter: parseFloat(entry.value),
-            amount_ghs:    0,
             rtt_litres:    0,
           })
         }

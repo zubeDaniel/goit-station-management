@@ -25,7 +25,7 @@ app.use('/api/attendants', require('./routes/attendants'));
 console.log('Loading meter...');
 app.use('/api/meter', require('./routes/meter'));
 console.log('Loading tankStock...');
-app.use('/api/tank-stock', require('./routes/tankStock'));
+app.use('/api/tank-stock', require('./routes/tankstock'));
 console.log('Loading deliveries...');
 app.use('/api/deliveries', require('./routes/deliveries'));
 console.log('Loading creditors...');

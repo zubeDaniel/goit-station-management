@@ -57,13 +57,17 @@ router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
     }
 
     // Write to fuel_prices
-    await supabaseAdmin.from('fuel_prices').insert({
+    const { error: priceError } = await supabaseAdmin.from('fuel_prices').insert({
       fuel_type: suggestion.fuel_type,
       price_per_litre: suggestion.suggested_price_per_litre,
       effective_date: new Date().toISOString().split('T')[0],
       npa_reference: suggestion.npa_reference,
       updated_by: req.user.id
     });
+
+    if (priceError) {
+      return res.status(500).json({ error: `Failed to apply price: ${priceError.message}` });
+    }
 
     // Mark approved
     const { data, error } = await supabaseAdmin

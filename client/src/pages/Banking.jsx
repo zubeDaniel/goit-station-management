@@ -14,8 +14,7 @@ export default function Banking() {
     umb_momo_ghs: '0',
     gocard_ghs: '0',
     coupons_50_ghs: '0',
-    coupons_100_ghs: '0',
-    variance_vs_sales: '0'
+    coupons_100_ghs: '0'
   })
 
   const startDate = `${selectedMonth}-01`
@@ -51,7 +50,7 @@ export default function Banking() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await api.post('/banking', { ...form, variance_vs_sales: parseFloat(form.variance_vs_sales) || 0 })
+      await api.post('/banking', form)
       showToast('success', 'Banking entry saved', form.entry_date)
       await loadData()
     } catch (err) {
@@ -119,7 +118,7 @@ export default function Banking() {
             </div>
           </div>
 
-          {/* Variance display */}
+          {/* Total banked summary */}
           <div style={{ background: 'var(--green-subtle)', border: '1px solid var(--green-border)', borderRadius: 'var(--r-sm)', padding: '10px 12px', textAlign: 'center', marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', textTransform: 'uppercase', marginBottom: 2 }}>Total banked</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>GHS {total.toFixed(2)}</div>
@@ -168,7 +167,7 @@ export default function Banking() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Date</th><th>NIB</th><th>MoMo</th><th>GoCard</th><th>Coupons @50</th><th>Coupons @100</th><th>Total banked</th></tr>
+              <tr><th>Date</th><th>NIB</th><th>MoMo</th><th>GoCard</th><th>Coupons @50</th><th>Coupons @100</th><th>Total banked</th><th>Variance vs sales</th></tr>
             </thead>
             <tbody>
               {entries.map(e => (
@@ -180,10 +179,15 @@ export default function Banking() {
                   <td className="td-calc">{parseFloat(e.coupons_50_ghs).toFixed(2)}</td>
                   <td className="td-calc">{parseFloat(e.coupons_100_ghs).toFixed(2)}</td>
                   <td className="td-calc" style={{ fontWeight: 700 }}>GHS {parseFloat(e.total_banked_ghs).toFixed(2)}</td>
+                  <td>
+                    <span className={`badge ${parseFloat(e.variance_vs_sales) >= 0 ? 'badge-green' : 'badge-red'}`}>
+                      {parseFloat(e.variance_vs_sales) >= 0 ? '+' : ''}{parseFloat(e.variance_vs_sales || 0).toFixed(2)}
+                    </span>
+                  </td>
                 </tr>
               ))}
               {entries.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
               )}
             </tbody>
           </table>

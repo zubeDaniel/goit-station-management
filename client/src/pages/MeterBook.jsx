@@ -22,6 +22,7 @@ export default function MeterBook() {
   const [prices, setPrices]       = useState({})
   const [attendants, setAttendants] = useState([])
   const [saving, setSaving]       = useState(false)
+  const [dealerMargin, setDealerMargin] = useState(0.30)
 
   // Delivery state — Option A: checkbox only, fetches from tanker_deliveries
   const [deliveryChecked, setDeliveryChecked]   = useState(false)
@@ -43,10 +44,14 @@ export default function MeterBook() {
       api.get('/meter'),
       api.get('/prices/current'),
       api.get('/attendants'),
-    ]).then(([meterRes, pricesRes, attendantsRes]) => {
+      isAdminOrManager ? api.get('/setup') : Promise.resolve(null),
+    ]).then(([meterRes, pricesRes, attendantsRes, setupRes]) => {
       setReadings(meterRes.data)
       setPrices(pricesRes.data)
       setAttendants(attendantsRes.data)
+      if (setupRes?.data?.dealer_margin_per_litre !== undefined) {
+        setDealerMargin(parseFloat(setupRes.data.dealer_margin_per_litre))
+      }
     }).catch(console.error)
       .finally(() => setLoading(false))
   }, [])
@@ -176,7 +181,7 @@ export default function MeterBook() {
   const totalSXP     = ['P1_SXP','P2_SXP'].reduce((s, k) => s + calcLitres(form[k].opening_meter, form[k].closing_meter), 0)
   const totalDXP     = ['P1_DXP','P2_DXP','P3_DXP'].reduce((s, k) => s + calcLitres(form[k].opening_meter, form[k].closing_meter), 0)
   const totalLitres  = totalSXP + totalDXP
-  const dealerEarnings = totalLitres * 0.30
+  const dealerEarnings = totalLitres * dealerMargin
 
   if (loading) return <div className="loading-screen">Loading meter book...</div>
 

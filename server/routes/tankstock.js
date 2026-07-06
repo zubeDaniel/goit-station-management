@@ -30,7 +30,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     const {
       stock_date, tank_id, fuel_type,
       opening_stock, litres_sold, delivery_litres,
-      closing_stock_dip, expected_variance
+      closing_stock_dip, actual_variance, expected_variance
     } = req.body;
 
     if (!stock_date || !tank_id || !fuel_type || closing_stock_dip === undefined) {
@@ -45,6 +45,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
         litres_sold: litres_sold || 0,
         delivery_litres: delivery_litres || 0,
         closing_stock_dip,
+        actual_variance: actual_variance || 0,
         expected_variance: expected_variance || 0,
         created_by: req.user.id
       })
