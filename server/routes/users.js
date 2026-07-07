@@ -99,8 +99,22 @@ router.delete('/:id', authenticate, adminOnly, async (req, res) => {
     if (req.params.id === req.user.id) {
       return res.status(403).json({ error: 'You cannot delete your own account' });
     }
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(req.params.id);
+
+    // If the auth account is already gone (e.g. a previous delete attempt removed
+    // it but left this database row behind), don't treat that as fatal — proceed
+    // to clean up the leftover row instead of erroring on every retry forever.
+    if (authError && !/not.?found|does not exist/i.test(authError.message || '')) {
+      return res.status(500).json({ error: authError.message });
+    }
+
+    const { error: dbError } = await supabaseAdmin
+      .from('users')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (dbError) return res.status(500).json({ error: dbError.message });
     res.json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete user' });
