@@ -7,6 +7,7 @@ export default function SalesBook() {
   const [sales, setSales] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [form, setForm] = useState({
     entry_date: new Date().toISOString().split('T')[0],
@@ -55,16 +56,62 @@ export default function SalesBook() {
       }).catch(() => {})
   }, [form.entry_date])
 
+  const emptyForm = () => ({
+    entry_date: new Date().toISOString().split('T')[0],
+    coupons_ghs: '0', gocard_ghs: '0', momo_ghs: '0',
+    merka_wood_ghs: '0', genset_ghs: '0', lubricant_ghs: '0',
+    meter_amount_ghs: ''
+  })
+
   const handleSave = async () => {
     setSaving(true)
     try {
-      await api.post('/sales', form)
-      showToast('success', 'Sales entry saved', form.entry_date)
+      if (editingId) {
+        await api.put(`/sales/${editingId}`, form)
+        showToast('success', 'Sales entry updated', form.entry_date)
+        setEditingId(null)
+      } else {
+        await api.post('/sales', form)
+        showToast('success', 'Sales entry saved', form.entry_date)
+      }
+      setForm(emptyForm())
       await loadData()
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.error)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleEdit = (row) => {
+    setEditingId(row.id)
+    setForm({
+      entry_date: row.entry_date,
+      coupons_ghs: String(row.coupons_ghs || 0),
+      gocard_ghs: String(row.gocard_ghs || 0),
+      momo_ghs: String(row.momo_ghs || 0),
+      merka_wood_ghs: String(row.merka_wood_ghs || 0),
+      genset_ghs: String(row.genset_ghs || 0),
+      lubricant_ghs: String(row.lubricant_ghs || 0),
+      meter_amount_ghs: String(row.meter_amount_ghs || 0),
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setForm(emptyForm())
+  }
+
+  const handleDelete = async (id, date) => {
+    if (!confirm(`Delete the sales entry for ${date}? This cannot be undone.`)) return
+    try {
+      await api.delete(`/sales/${id}`)
+      showToast('success', 'Sales entry deleted', date)
+      if (editingId === id) handleCancelEdit()
+      await loadData()
+    } catch (err) {
+      showToast('error', 'Delete failed', err.response?.data?.error)
     }
   }
 
@@ -124,12 +171,14 @@ export default function SalesBook() {
         {/* Daily entry form */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Daily entry — {form.entry_date}</div>
+            <div className="card-title">{editingId ? `Editing entry — ${form.entry_date}` : `Daily entry — ${form.entry_date}`}</div>
+            {editingId && <span className="badge badge-amber">Editing</span>}
           </div>
           <div className="form-group" style={{ marginBottom: 14, maxWidth: 220 }}>
             <label className="form-label">Date</label>
-            <input className="form-input" type="date" value={form.entry_date}
+            <input className="form-input" type="date" value={form.entry_date} disabled={!!editingId}
               onChange={e => setForm(p => ({ ...p, entry_date: e.target.value }))} />
+            {editingId && <span className="form-hint">Date can't be changed while editing — delete and re-create instead</span>}
           </div>
           <div className="form-row">
             {channels.map(ch => (
@@ -184,10 +233,15 @@ export default function SalesBook() {
             <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>GHS 0.00</span>
           </div>
 
-          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}
-            onClick={handleSave} disabled={saving}>
-            <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : 'Save sales entry'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {editingId && (
+              <button className="btn btn-ghost" onClick={handleCancelEdit}>Cancel</button>
+            )}
+            <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}
+              onClick={handleSave} disabled={saving}>
+              <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : editingId ? 'Update sales entry' : 'Save sales entry'}
+            </button>
+          </div>
         </div>
 
         {/* Monthly channel totals */}
@@ -230,7 +284,7 @@ export default function SalesBook() {
               <tr>
                 <th>Date</th><th>Coupons</th><th>GoCard</th><th>MoMo</th>
                 <th>Merka</th><th>Genset</th><th>Lubricant</th>
-                <th>Total sales</th><th>Meter amt</th><th>Variance</th>
+                <th>Total sales</th><th>Meter amt</th><th>Variance</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -250,10 +304,16 @@ export default function SalesBook() {
                       {parseFloat(s.variance_ghs) >= 0 ? '+' : ''}{parseFloat(s.variance_ghs).toFixed(2)}
                     </span>
                   </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(s)}><i className="ph ph-pencil-simple"></i></button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete(s.id, s.entry_date)}><i className="ph ph-trash"></i></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {sales.length === 0 && (
-                <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
+                <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
               )}
             </tbody>
           </table>

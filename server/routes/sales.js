@@ -55,13 +55,59 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ error: `A sales entry for ${entry_date} already exists. There is currently no edit function — this is a known gap, not something you did wrong.` });
+        return res.status(409).json({ error: `A sales entry for ${entry_date} already exists — edit that entry instead of creating a new one.` });
       }
       return res.status(500).json({ error: error.message });
     }
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save sales entry' });
+  }
+});
+
+// PUT /api/sales/:id
+router.put('/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const {
+      coupons_ghs, gocard_ghs,
+      momo_ghs, merka_wood_ghs, genset_ghs,
+      lubricant_ghs, meter_amount_ghs
+    } = req.body;
+
+    const { data, error } = await supabaseAdmin
+      .from('sales_book')
+      .update({
+        coupons_ghs: coupons_ghs || 0,
+        gocard_ghs: gocard_ghs || 0,
+        momo_ghs: momo_ghs || 0,
+        merka_wood_ghs: merka_wood_ghs || 0,
+        genset_ghs: genset_ghs || 0,
+        lubricant_ghs: lubricant_ghs || 0,
+        meter_amount_ghs: meter_amount_ghs || 0,
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update sales entry' });
+  }
+});
+
+// DELETE /api/sales/:id
+router.delete('/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('sales_book')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: 'Sales entry deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete sales entry' });
   }
 });
 

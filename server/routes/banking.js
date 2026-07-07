@@ -68,13 +68,72 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ error: `A banking entry for ${entry_date} already exists. There is currently no edit function — this is a known gap, not something you did wrong.` });
+        return res.status(409).json({ error: `A banking entry for ${entry_date} already exists — edit that entry instead of creating a new one.` });
       }
       return res.status(500).json({ error: error.message });
     }
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save banking entry' });
+  }
+});
+
+// PUT /api/banking/:id
+router.put('/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const {
+      entry_date, nib_ghs, umb_momo_ghs,
+      gocard_ghs, coupons_50_ghs, coupons_100_ghs
+    } = req.body;
+
+    const total_banked_ghs =
+      (parseFloat(nib_ghs) || 0) +
+      (parseFloat(umb_momo_ghs) || 0) +
+      (parseFloat(gocard_ghs) || 0) +
+      (parseFloat(coupons_50_ghs) || 0) +
+      (parseFloat(coupons_100_ghs) || 0);
+
+    const { data: salesRow } = await supabaseAdmin
+      .from('sales_book')
+      .select('total_sales_ghs')
+      .eq('entry_date', entry_date)
+      .maybeSingle();
+
+    const variance_vs_sales = total_banked_ghs - (parseFloat(salesRow?.total_sales_ghs) || 0);
+
+    const { data, error } = await supabaseAdmin
+      .from('banking')
+      .update({
+        nib_ghs: nib_ghs || 0,
+        umb_momo_ghs: umb_momo_ghs || 0,
+        gocard_ghs: gocard_ghs || 0,
+        coupons_50_ghs: coupons_50_ghs || 0,
+        coupons_100_ghs: coupons_100_ghs || 0,
+        variance_vs_sales,
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update banking entry' });
+  }
+});
+
+// DELETE /api/banking/:id
+router.delete('/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('banking')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: 'Banking entry deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete banking entry' });
   }
 });
 

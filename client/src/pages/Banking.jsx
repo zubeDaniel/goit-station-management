@@ -7,6 +7,7 @@ export default function Banking() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [form, setForm] = useState({
     entry_date: new Date().toISOString().split('T')[0],
@@ -50,13 +51,58 @@ export default function Banking() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await api.post('/banking', form)
-      showToast('success', 'Banking entry saved', form.entry_date)
+      if (editingId) {
+        await api.put(`/banking/${editingId}`, form)
+        showToast('success', 'Banking entry updated', form.entry_date)
+        setEditingId(null)
+      } else {
+        await api.post('/banking', form)
+        showToast('success', 'Banking entry saved', form.entry_date)
+      }
+      setForm({
+        entry_date: new Date().toISOString().split('T')[0],
+        nib_ghs: '0', umb_momo_ghs: '0', gocard_ghs: '0',
+        coupons_50_ghs: '0', coupons_100_ghs: '0'
+      })
       await loadData()
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.error)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleEdit = (entry) => {
+    setEditingId(entry.id)
+    setForm({
+      entry_date: entry.entry_date,
+      nib_ghs: String(entry.nib_ghs || 0),
+      umb_momo_ghs: String(entry.umb_momo_ghs || 0),
+      gocard_ghs: String(entry.gocard_ghs || 0),
+      coupons_50_ghs: String(entry.coupons_50_ghs || 0),
+      coupons_100_ghs: String(entry.coupons_100_ghs || 0),
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setForm({
+      entry_date: new Date().toISOString().split('T')[0],
+      nib_ghs: '0', umb_momo_ghs: '0', gocard_ghs: '0',
+      coupons_50_ghs: '0', coupons_100_ghs: '0'
+    })
+  }
+
+  const handleDelete = async (id, date) => {
+    if (!confirm(`Delete the banking entry for ${date}? This cannot be undone.`)) return
+    try {
+      await api.delete(`/banking/${id}`)
+      showToast('success', 'Banking entry deleted', date)
+      if (editingId === id) handleCancelEdit()
+      await loadData()
+    } catch (err) {
+      showToast('error', 'Delete failed', err.response?.data?.error)
     }
   }
 
@@ -97,12 +143,14 @@ export default function Banking() {
         {/* Daily entry form */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Daily entry — {form.entry_date}</div>
+            <div className="card-title">{editingId ? `Editing entry — ${form.entry_date}` : `Daily entry — ${form.entry_date}`}</div>
+            {editingId && <span className="badge badge-amber">Editing</span>}
           </div>
           <div className="form-group" style={{ marginBottom: 14, maxWidth: 220 }}>
             <label className="form-label">Date</label>
-            <input className="form-input" type="date" value={form.entry_date}
+            <input className="form-input" type="date" value={form.entry_date} disabled={!!editingId}
               onChange={e => setForm(p => ({ ...p, entry_date: e.target.value }))} />
+            {editingId && <span className="form-hint">Date can't be changed while editing — delete and re-create instead</span>}
           </div>
           <div className="form-row">
             {channels.map(ch => (
@@ -124,10 +172,15 @@ export default function Banking() {
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>GHS {total.toFixed(2)}</div>
           </div>
 
-          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}
-            onClick={handleSave} disabled={saving}>
-            <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : 'Save banking entry'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {editingId && (
+              <button className="btn btn-ghost" onClick={handleCancelEdit}>Cancel</button>
+            )}
+            <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}
+              onClick={handleSave} disabled={saving}>
+              <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : editingId ? 'Update banking entry' : 'Save banking entry'}
+            </button>
+          </div>
         </div>
 
         {/* Monthly channel totals */}
@@ -167,7 +220,7 @@ export default function Banking() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Date</th><th>NIB</th><th>MoMo</th><th>GoCard</th><th>Coupons @50</th><th>Coupons @100</th><th>Total banked</th><th>Variance vs sales</th></tr>
+              <tr><th>Date</th><th>NIB</th><th>MoMo</th><th>GoCard</th><th>Coupons @50</th><th>Coupons @100</th><th>Total banked</th><th>Variance vs sales</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {entries.map(e => (
@@ -184,10 +237,16 @@ export default function Banking() {
                       {parseFloat(e.variance_vs_sales) >= 0 ? '+' : ''}{parseFloat(e.variance_vs_sales || 0).toFixed(2)}
                     </span>
                   </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(e)}><i className="ph ph-pencil-simple"></i></button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete(e.id, e.entry_date)}><i className="ph ph-trash"></i></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {entries.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No entries for this month</td></tr>
               )}
             </tbody>
           </table>
