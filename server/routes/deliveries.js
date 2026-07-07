@@ -45,8 +45,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'delivery_date, fuel_type, tank_id, bol_number, and truck_registration are required' });
     }
 
-    const shortage_litres = (parseFloat(expected_litres) || 0) - (parseFloat(actual_litres) || 0);
-
     const { data, error } = await supabaseAdmin
       .from('tanker_deliveries')
       .insert({
@@ -54,7 +52,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
         bol_number, truck_registration, driver_name,
         expected_litres: expected_litres || 0,
         actual_litres: actual_litres || 0,
-        shortage_litres,
         created_by: req.user.id
       })
       .select()

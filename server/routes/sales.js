@@ -36,16 +36,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'entry_date is required' });
     }
 
-    const total_sales_ghs =
-      (parseFloat(coupons_ghs) || 0) +
-      (parseFloat(gocard_ghs) || 0) +
-      (parseFloat(momo_ghs) || 0) +
-      (parseFloat(merka_wood_ghs) || 0) +
-      (parseFloat(genset_ghs) || 0) +
-      (parseFloat(lubricant_ghs) || 0);
-
-    const variance_ghs = total_sales_ghs - (parseFloat(meter_amount_ghs) || 0);
-
     // RTT is NEVER accepted as input here
     const { data, error } = await supabaseAdmin
       .from('sales_book')
@@ -58,8 +48,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
         genset_ghs: genset_ghs || 0,
         lubricant_ghs: lubricant_ghs || 0,
         meter_amount_ghs: meter_amount_ghs || 0,
-        total_sales_ghs,
-        variance_ghs,
         created_by: req.user.id
       })
       .select()

@@ -60,7 +60,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
         gocard_ghs: gocard_ghs || 0,
         coupons_50_ghs: coupons_50_ghs || 0,
         coupons_100_ghs: coupons_100_ghs || 0,
-        total_banked_ghs,
         variance_vs_sales,
         created_by: req.user.id
       })

@@ -60,7 +60,6 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       .insert({
         reading_date, pump_id, fuel_type,
         attendant_id, opening_meter, closing_meter,
-        litres_sold,
         amount_ghs,
         rtt_litres: rtt_litres || 0,
         created_by: req.user.id
@@ -106,7 +105,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     const { data, error } = await supabaseAdmin
       .from('pump_meter_readings')
-      .update({ closing_meter, attendant_id, litres_sold, amount_ghs, rtt_litres })
+      .update({ closing_meter, attendant_id, amount_ghs, rtt_litres })
       .eq('id', req.params.id)
       .select()
       .single();

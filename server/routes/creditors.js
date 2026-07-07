@@ -101,7 +101,6 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
         dxp_litres: dxp_litres || 0,
         sxp_amount_ghs: computedSxpAmount,
         dxp_amount_ghs: computedDxpAmount,
-        total_amount_ghs: total,
         created_by: req.user.id
       })
       .select()
