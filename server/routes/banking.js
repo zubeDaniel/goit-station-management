@@ -66,7 +66,12 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       .select()
       .single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: `A banking entry for ${entry_date} already exists. There is currently no edit function — this is a known gap, not something you did wrong.` });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save banking entry' });
