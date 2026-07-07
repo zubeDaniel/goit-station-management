@@ -67,6 +67,11 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
       .eq('id', req.params.id)
       .single();
 
+    // Nobody can change their own role — prevents accidental self-demotion/lockout
+    if (req.params.id === req.user.id && role && role !== req.user.role) {
+      return res.status(403).json({ error: 'You cannot change your own role' });
+    }
+
     // Manager cannot touch admin accounts or elevate to admin
     if (req.user.role === 'manager') {
       if (target?.role === 'admin' || role === 'admin') {
@@ -91,6 +96,9 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 // DELETE /api/users/:id — Admin only
 router.delete('/:id', authenticate, adminOnly, async (req, res) => {
   try {
+    if (req.params.id === req.user.id) {
+      return res.status(403).json({ error: 'You cannot delete your own account' });
+    }
     const { error } = await supabaseAdmin.auth.admin.deleteUser(req.params.id);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ message: 'User deleted' });
