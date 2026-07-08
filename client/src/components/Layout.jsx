@@ -5,28 +5,28 @@ import { useState } from 'react'
 
 const navItems = [
   { section: 'Operations', items: [
-    { path: '/',           label: 'Dashboard',   icon: 'ph-squares-four',    roles: ['admin','manager'] },
-    { path: '/meter',      label: 'Meter Book',  icon: 'ph-gauge',           roles: ['admin','manager','viewer'] },
-    { path: '/tank-stock', label: 'Tank Stock',  icon: 'ph-cylinder',        roles: ['admin','manager'] },
-    { path: '/deliveries', label: 'Deliveries',  icon: 'ph-truck',           roles: ['admin','manager'] },
-    { path: '/creditors',  label: 'Creditors',   icon: 'ph-users-three',     roles: ['admin','manager'] },
-    { path: '/sales',      label: 'Sales Book',  icon: 'ph-receipt',         roles: ['admin','manager'] },
-    { path: '/banking',    label: 'Banking',     icon: 'ph-bank',            roles: ['admin','manager'] },
-    { path: '/expenses',   label: 'Expenses',    icon: 'ph-wallet',          roles: ['admin','manager'] },
+    { path: '/',           label: 'Dashboard',   mobileLabel: 'Home',     icon: 'ph-squares-four',    roles: ['admin','manager'] },
+    { path: '/meter',      label: 'Meter Book',  mobileLabel: 'Meter',    icon: 'ph-gauge',           roles: ['admin','manager','viewer'] },
+    { path: '/tank-stock', label: 'Tank Stock',  mobileLabel: 'Tanks',    icon: 'ph-cylinder',        roles: ['admin','manager'] },
+    { path: '/deliveries', label: 'Deliveries',  mobileLabel: 'Delivery', icon: 'ph-truck',           roles: ['admin','manager'] },
+    { path: '/creditors',  label: 'Creditors',   mobileLabel: 'Credit',   icon: 'ph-users-three',     roles: ['admin','manager'] },
+    { path: '/sales',      label: 'Sales Book',  mobileLabel: 'Sales',    icon: 'ph-receipt',         roles: ['admin','manager'] },
+    { path: '/banking',    label: 'Banking',     mobileLabel: 'Bank',     icon: 'ph-bank',            roles: ['admin','manager'] },
+    { path: '/expenses',   label: 'Expenses',    mobileLabel: 'Expense',  icon: 'ph-wallet',          roles: ['admin','manager'] },
   ]},
   { section: 'Compliance & Staff', items: [
-    { path: '/compliance', label: 'Compliance',  icon: 'ph-clipboard-text',  roles: ['admin','manager'] },
-    { path: '/shifts',     label: 'Shifts',      icon: 'ph-calendar-check',  roles: ['admin','manager','viewer'] },
+    { path: '/compliance', label: 'Compliance',  mobileLabel: 'Comply',   icon: 'ph-clipboard-text',  roles: ['admin','manager'] },
+    { path: '/shifts',     label: 'Shifts',      mobileLabel: 'Shifts',   icon: 'ph-calendar-check',  roles: ['admin','manager','viewer'] },
   ]},
   { section: 'Intelligence', items: [
-    { path: '/reports',    label: 'Reports',     icon: 'ph-chart-bar',       roles: ['admin','manager'] },
+    { path: '/reports',    label: 'Reports',     mobileLabel: 'Reports',  icon: 'ph-chart-bar',       roles: ['admin','manager'] },
   ]},
   { section: 'Settings', items: [
-    { path: '/prices',     label: 'Price Settings', icon: 'ph-tag',          roles: ['admin','manager'] },
-    { path: '/users',      label: 'Users',          icon: 'ph-user-gear',    roles: ['admin','manager'] },
-    { path: '/import',     label: 'Import',         icon: 'ph-upload-simple',roles: ['admin','manager'] },
-    { path: '/setup',      label: 'Station Setup',  icon: 'ph-sliders',      roles: ['admin','manager'] },
-    { path: '/audit',      label: 'Audit Log',      icon: 'ph-shield-check', roles: ['admin'] },
+    { path: '/prices',     label: 'Price Settings', mobileLabel: 'Prices', icon: 'ph-tag',          roles: ['admin','manager'] },
+    { path: '/users',      label: 'Users',          mobileLabel: 'Users',  icon: 'ph-user-gear',    roles: ['admin','manager'] },
+    { path: '/import',     label: 'Import',         mobileLabel: 'Import', icon: 'ph-upload-simple',roles: ['admin','manager'] },
+    { path: '/setup',      label: 'Station Setup',  mobileLabel: 'Setup',  icon: 'ph-sliders',      roles: ['admin','manager'] },
+    { path: '/audit',      label: 'Audit Log',      mobileLabel: 'Audit',  icon: 'ph-shield-check', roles: ['admin'] },
   ]},
 ]
 
@@ -45,6 +45,7 @@ export default function Layout() {
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
 
   return (
+    <>
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' }}>
 
       {/* Sidebar */}
@@ -146,10 +147,32 @@ export default function Layout() {
         </div>
 
         {/* Content */}
-        <div style={{ flex:1, overflowY:'auto', padding:24 }}>
+        <div className="app-content" style={{ flex:1, overflowY:'auto', padding:24 }}>
           <Outlet />
         </div>
       </div>
     </div>
+
+    {/* Mobile bottom nav — hidden above 767px via CSS */}
+    <nav className="mobile-bottom-nav">
+      <div className="mobile-nav-scroll">
+        {navItems.flatMap(g => g.items)
+          .filter(item => item.roles.includes(role))
+          .map(item => {
+            const active = location.pathname === item.path
+            return (
+              <div
+                key={item.path}
+                className={`mobile-nav-tab ${active ? 'active' : ''}`}
+                onClick={() => navigate(item.path)}
+              >
+                <i className={`ph ${item.icon}`}></i>
+                <span>{item.mobileLabel || item.label}</span>
+              </div>
+            )
+          })}
+      </div>
+    </nav>
+    </>
   )
 }
