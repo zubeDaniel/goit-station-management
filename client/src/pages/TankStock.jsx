@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useRole } from '../hooks/useRole'
 import api from '../lib/api'
 import { useToast } from '../components/Toast'
 
@@ -23,6 +24,7 @@ const emptyDelivery = () => ({
 
 export default function TankStock() {
   const { showToast } = useToast()
+  const { isAdmin } = useRole()
   const [stocks, setStocks]   = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
@@ -39,6 +41,70 @@ export default function TankStock() {
     TANK_B: emptyDelivery(),
   })
 
+  // Editing a historical row is deliberately separate from the main
+  // dual-tank daily-entry form above — that form always submits both
+  // tanks together for "today". Correcting a past entry is a single-row
+  // operation, scoped to exactly the two fields the backend allows
+  // editing (closing_stock_dip, delivery_litres) — opening_stock stays as
+  // the historical snapshot it was, litres_sold/expected_variance are
+  // re-derived server-side, not edited directly. See tankstock.js PUT.
+  const [editingRow, setEditingRow] = useState(null)
+  const [editForm, setEditForm] = useState({ closing_stock_dip: '', delivery_litres: '' })
+  const [editDeliveryRecord, setEditDeliveryRecord] = useState(null)
+  const [editDeliveryLoading, setEditDeliveryLoading] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+
+  const openEdit = async (row) => {
+    setEditingRow(row)
+    setEditForm({ closing_stock_dip: String(row.closing_stock_dip || 0), delivery_litres: '' })
+    setEditDeliveryLoading(true)
+    try {
+      // delivery_litres is derived from the actual tanker_deliveries
+      // record for this tank+date, same as the create form — not
+      // free-typed. A manually-entered number here, disconnected from
+      // what was actually logged in Deliveries, is exactly how a wrong
+      // figure ends up saved with no real record of where it came from.
+      const res = await api.get(`/deliveries?date=${row.stock_date}&tank_id=${row.tank_id}`)
+      const record = res.data?.[0] || null
+      setEditDeliveryRecord(record)
+      setEditForm(p => ({ ...p, delivery_litres: String(record ? record.actual_litres : 0) }))
+    } catch (err) {
+      console.error('Failed to load delivery record for edit', err)
+      setEditDeliveryRecord(null)
+      setEditForm(p => ({ ...p, delivery_litres: String(row.delivery_litres || 0) }))
+    } finally {
+      setEditDeliveryLoading(false)
+    }
+  }
+
+  const handleDeleteRow = async (row) => {
+    if (!confirm(`Delete this entry — ${row.tank_id} on ${row.stock_date}? This cannot be undone.`)) return
+    try {
+      await api.delete(`/tank-stock/${row.id}`)
+      showToast('success', 'Tank stock entry deleted', `${row.tank_id} — ${row.stock_date}`)
+      setEditingRow(null)
+      const res = await api.get('/tank-stock')
+      setStocks(res.data)
+    } catch (err) {
+      showToast('error', 'Delete failed', err.response?.data?.error)
+    }
+  }
+
+  const handleUpdateRow = async () => {
+    setEditSaving(true)
+    try {
+      await api.put(`/tank-stock/${editingRow.id}`, editForm)
+      showToast('success', 'Tank stock entry updated', `${editingRow.tank_id} — ${editingRow.stock_date}`)
+      setEditingRow(null)
+      const res = await api.get('/tank-stock')
+      setStocks(res.data)
+    } catch (err) {
+      showToast('error', 'Update failed', err.response?.data?.error)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   useEffect(() => {
     api.get('/tank-stock')
       .then(res => setStocks(res.data))
@@ -49,19 +115,36 @@ export default function TankStock() {
   // ── Auto-fill opening stock (from previous closing dip) and litres sold
   //    (from actual pump meter readings for this date) — stays editable so
   //    a supervisor can correct it if Meter Book wasn't entered yet that day.
+  // Tracks whether a prior tank_stock row was actually found for each
+  // tank — when none exists (the very first entry ever for that tank),
+  // opening_stock needs to stay editable so the real dip-measured
+  // baseline can be entered, matching what the backend already allows
+  // (server-side derivation falls back to the client's value in exactly
+  // this case — see tankstock.js). Previously the field was locked
+  // unconditionally, so when no prior entry existed the field was both
+  // empty AND uneditable, silently sending 0 as the opening stock and
+  // showing a wildly wrong live variance preview.
+  const [hasNoPrior, setHasNoPrior] = useState({ TANK_A: false, TANK_B: false })
+
   useEffect(() => {
     if (loading) return
 
     setForm(prev => {
       const updated = { ...prev }
+      const noPrior = {}
       TANKS.forEach(({ tankId }) => {
         const prior = stocks
           .filter(s => s.tank_id === tankId && s.stock_date < prev.stock_date)
           .sort((a, b) => b.stock_date.localeCompare(a.stock_date))[0]
         if (prior) {
           updated[tankId] = { ...updated[tankId], opening_stock: parseFloat(prior.closing_stock_dip).toFixed(2) }
+          noPrior[tankId] = false
+        } else {
+          updated[tankId] = { ...updated[tankId], opening_stock: '' }
+          noPrior[tankId] = true
         }
       })
+      setHasNoPrior(noPrior)
       return updated
     })
 
@@ -313,22 +396,29 @@ export default function TankStock() {
                 <div className="form-group">
                   <label className="form-label">Opening stock (L)</label>
                   <input
-                    className="form-input"
+                    className={hasNoPrior[tankId] ? "form-input" : "form-input is-auto"}
                     type="number"
                     value={tank.opening_stock}
-                    onChange={e => updateTank(tankId, 'opening_stock', e.target.value)}
-                    placeholder="From previous dip"
+                    readOnly={!hasNoPrior[tankId]}
+                    onChange={hasNoPrior[tankId] ? (e => updateTank(tankId, 'opening_stock', e.target.value)) : undefined}
+                    placeholder={hasNoPrior[tankId] ? "No prior entry — enter the physically measured baseline" : "From previous dip"}
                   />
+                  <span className="form-hint">
+                    {hasNoPrior[tankId]
+                      ? "No previous entry for this tank — enter today's dip reading as the starting baseline"
+                      : "Locked — always the previous day's actual closing dip for this tank"}
+                  </span>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Litres sold (L)</label>
                   <input
-                    className="form-input"
+                    className="form-input is-auto"
                     type="number"
                     value={tank.litres_sold}
-                    onChange={e => updateTank(tankId, 'litres_sold', e.target.value)}
+                    readOnly
                     placeholder="From pump meters"
                   />
+                  <span className="form-hint">Locked — always the true sum from pump meters, the reconciliation check this screen exists for</span>
                 </div>
               </div>
 
@@ -420,7 +510,7 @@ export default function TankStock() {
               <tr>
                 <th>Date</th><th>Tank</th><th>Fuel</th>
                 <th>Opening</th><th>Sold</th><th>Delivery</th>
-                <th>Closing (dip)</th><th>Actual var.</th><th>Expected var.</th>
+                <th>Closing (dip)</th><th>Actual var.</th><th>Expected var.</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -443,11 +533,14 @@ export default function TankStock() {
                       {parseFloat(s.expected_variance).toFixed(2)} L
                     </span>
                   </td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}><i className="ph ph-pencil-simple"></i></button>
+                  </td>
                 </tr>
               ))}
               {stocks.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
+                  <td colSpan={10} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
                     No entries yet
                   </td>
                 </tr>
@@ -456,6 +549,56 @@ export default function TankStock() {
           </table>
         </div>
       </div>
+
+      {/* Edit modal — deliberately minimal: only the two fields the
+          backend allows editing on a historical row. */}
+      {editingRow && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 420 }}>
+            <div className="card-header">
+              <div>
+                <div className="card-title">Edit entry — {editingRow.tank_id}</div>
+                <div className="card-subtitle">{editingRow.stock_date}</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingRow(null)}><i className="ph ph-x"></i></button>
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Closing stock — dip reading (L)</label>
+              <input className="form-input" type="number" value={editForm.closing_stock_dip}
+                onChange={e => setEditForm(p => ({ ...p, closing_stock_dip: e.target.value }))} />
+            </div>
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Delivery received (L)</label>
+              <input className="form-input is-auto" type="number" value={editForm.delivery_litres}
+                readOnly placeholder={editDeliveryLoading ? 'Loading...' : '0'} />
+              <span className="form-hint">
+                {editDeliveryLoading
+                  ? 'Checking Deliveries for this date...'
+                  : editDeliveryRecord
+                    ? `Locked — from the logged delivery (BOL ${editDeliveryRecord.bol_number}). To correct this figure, edit it in Deliveries instead.`
+                    : 'Locked — no delivery logged for this tank on this date, so this is 0. Log it in Deliveries first if one is missing.'}
+              </span>
+            </div>
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Opening stock, litres sold, expected variance</label>
+              <div className="form-hint">Re-derived automatically from the previous dip, pump readings, and delivery waybill — not editable here or anywhere else. If any of those source records are wrong, correct them at the source (Meter Book, Deliveries, or the previous day's Tank Stock entry) and this entry will reflect it once re-saved.</div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              {isAdmin ? (
+                <button className="btn btn-danger" onClick={() => handleDeleteRow(editingRow)}>
+                  <i className="ph ph-trash"></i> Delete entry
+                </button>
+              ) : <div />}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-ghost" onClick={() => setEditingRow(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleUpdateRow} disabled={editSaving || editDeliveryLoading}>
+                  <i className="ph ph-check"></i> {editSaving ? 'Saving...' : 'Update entry'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

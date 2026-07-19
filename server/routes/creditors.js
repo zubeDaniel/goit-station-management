@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOrManager } = require('../middleware/auth');
 
 // GET /api/creditors
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('creditors')
       .select('*')
       .is('deleted_at', null)
@@ -24,7 +24,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     const { name, contact_name, contact_phone, credit_limit_ghs } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('creditors')
       .insert({ name, contact_name, contact_phone, credit_limit_ghs: credit_limit_ghs || 0 })
       .select()
@@ -41,7 +41,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 router.get('/credit-sales', authenticate, adminOrManager, async (req, res) => {
   try {
     const { start_date, end_date, creditor_id } = req.query;
-    let query = supabaseAdmin
+    let query = req.supabaseAdmin
       .from('credit_sales')
       .select('*, creditors(name)')
       .is('deleted_at', null)
@@ -76,7 +76,7 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
     // not whatever the client sent, which uses "current" price regardless of
     // which date was actually selected (wrong when backfilling a past date)
     const getEffectivePrice = async (fuelType) => {
-      const { data: priceRow } = await supabaseAdmin
+      const { data: priceRow } = await req.supabaseAdmin
         .from('fuel_prices')
         .select('price_per_litre')
         .eq('fuel_type', fuelType)
@@ -91,42 +91,51 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
     const dxpPrice = await getEffectivePrice('DXP');
     const computedSxpAmount = (parseFloat(sxp_litres) || 0) * sxpPrice;
     const computedDxpAmount = (parseFloat(dxp_litres) || 0) * dxpPrice;
-    const total = computedSxpAmount + computedDxpAmount;
 
-    const { data, error } = await supabaseAdmin
-      .from('credit_sales')
-      .insert({
-        sale_date, creditor_id,
-        sxp_litres: sxp_litres || 0,
-        dxp_litres: dxp_litres || 0,
-        sxp_amount_ghs: computedSxpAmount,
-        dxp_amount_ghs: computedDxpAmount,
-        created_by: req.user.id
-      })
-      .select()
-      .single();
+    // The insert and the balance update happen together, atomically, inside
+    // one Postgres function — see migrations/006_creditor_balance_functions.sql.
+    // Previously these were two separate app-layer steps (read balance,
+    // compute, write back), which had a race condition under concurrent use
+    // and silently swallowed balance-update failures while still returning
+    // 201. Now either both succeed or neither does, and a failure here is a
+    // real error returned to the client, not a console.error nobody sees.
+    const { data, error } = await req.supabaseAdmin.rpc('record_credit_sale', {
+      p_sale_date: sale_date,
+      p_creditor_id: creditor_id,
+      p_sxp_litres: sxp_litres || 0,
+      p_dxp_litres: dxp_litres || 0,
+      p_sxp_amount_ghs: computedSxpAmount,
+      p_dxp_amount_ghs: computedDxpAmount,
+      p_created_by: req.user.id
+    }).single();
 
     if (error) return res.status(500).json({ error: error.message });
-
-    // Update creditor balance
-    const { data: creditor } = await supabaseAdmin
-      .from('creditors')
-      .select('current_balance_ghs')
-      .eq('id', creditor_id)
-      .single();
-
-    if (creditor) {
-      const newBalance = parseFloat(creditor.current_balance_ghs || 0) + total;
-      const { error: balanceError } = await supabaseAdmin
-        .from('creditors')
-        .update({ current_balance_ghs: newBalance })
-        .eq('id', creditor_id);
-      if (balanceError) console.error('Failed to update creditor balance:', balanceError.message);
-    }
 
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save credit sale' });
+  }
+});
+
+// GET /api/creditors/payments
+router.get('/payments', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { start_date, end_date, creditor_id } = req.query;
+    let query = req.supabaseAdmin
+      .from('creditor_payments')
+      .select('*, creditors(name)')
+      .is('deleted_at', null)
+      .order('payment_date', { ascending: false });
+
+    if (start_date) query = query.gte('payment_date', start_date);
+    if (end_date) query = query.lte('payment_date', end_date);
+    if (creditor_id) query = query.eq('creditor_id', creditor_id);
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch payments' });
   }
 });
 
@@ -139,32 +148,21 @@ router.post('/payments', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'payment_date, creditor_id, and amount_ghs are required' });
     }
 
-    const { data, error } = await supabaseAdmin
-      .from('creditor_payments')
-      .insert({
-        payment_date, creditor_id,
-        amount_ghs, payment_method, reference,
-        created_by: req.user.id
-      })
-      .select()
-      .single();
+    // Atomic — see migrations/006_creditor_balance_functions.sql. The
+    // previous version didn't even check for an error on the balance
+    // update at all; a failed update here would leave the payment
+    // recorded but the balance permanently overstated, with no error
+    // anywhere. Now it's one transaction: both happen or neither does.
+    const { data, error } = await req.supabaseAdmin.rpc('record_creditor_payment', {
+      p_payment_date: payment_date,
+      p_creditor_id: creditor_id,
+      p_amount_ghs: amount_ghs,
+      p_payment_method: payment_method,
+      p_reference: reference,
+      p_created_by: req.user.id
+    }).single();
 
     if (error) return res.status(500).json({ error: error.message });
-
-    // Reduce creditor balance
-    const { data: creditor } = await supabaseAdmin
-      .from('creditors')
-      .select('current_balance_ghs')
-      .eq('id', creditor_id)
-      .single();
-
-    if (creditor) {
-      const newBalance = Math.max(0, parseFloat(creditor.current_balance_ghs) - parseFloat(amount_ghs));
-      await supabaseAdmin
-        .from('creditors')
-        .update({ current_balance_ghs: newBalance })
-        .eq('id', creditor_id);
-    }
 
     res.status(201).json(data);
   } catch (err) {

@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
 // GET /api/compliance
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('compliance_certificates')
       .select('*')
       .is('deleted_at', null)
@@ -49,7 +49,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'certificate_name, issuing_authority, issue_date, and expiry_date are required' });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('compliance_certificates')
       .insert({
         certificate_name, issuing_authority, reference_number,
@@ -76,7 +76,17 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
       issue_date, expiry_date, status, alert_days_before
     } = req.body;
 
-    const { data, error } = await supabaseAdmin
+    // Archiving is Admin-only per the PRD ("Manager: create and
+    // update/renew. Cannot delete or archive"). This is the only place
+    // that rule could be bypassed, since it's a value inside the general
+    // edit payload rather than its own endpoint — the RLS policy on this
+    // table now blocks it too (compliance_update_manager), but check it
+    // here as well for a clean 403 instead of a raw database error.
+    if (req.user.role === 'manager' && status === 'archived') {
+      return res.status(403).json({ error: 'Managers cannot archive certificates — Admin only' });
+    }
+
+    const { data, error } = await req.supabaseAdmin
       .from('compliance_certificates')
       .update({
         certificate_name, issuing_authority, reference_number,
@@ -96,7 +106,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 // DELETE /api/compliance/:id — Admin only
 router.delete('/:id', authenticate, adminOnly, async (req, res) => {
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await req.supabaseAdmin
       .from('compliance_certificates')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', req.params.id);

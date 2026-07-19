@@ -31,7 +31,11 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await api.post('/auth/logout')
+      // Short timeout specifically for logout — this should feel
+      // near-instant. The global 15s default (see lib/api.js) is fine for
+      // normal requests, but a user clicking logout shouldn't wait that
+      // long to see something happen, even on a bad connection.
+      await api.post('/auth/logout', {}, { timeout: 4000 })
     } catch (_) {}
     localStorage.removeItem('goil_token')
     localStorage.removeItem('goil_user')

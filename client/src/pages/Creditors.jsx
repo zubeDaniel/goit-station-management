@@ -11,6 +11,9 @@ export default function Creditors() {
   const [saving, setSaving] = useState(false)
   const [showAddCreditor, setShowAddCreditor] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  const [showStatement, setShowStatement] = useState(false)
+  const [statementPayments, setStatementPayments] = useState([])
+  const [statementLoading, setStatementLoading] = useState(false)
   const [selectedCreditor, setSelectedCreditor] = useState(null)
 
   const [saleForm, setSaleForm] = useState({
@@ -104,6 +107,48 @@ export default function Creditors() {
     const price = parseFloat(prices.DXP?.price_per_litre || 0)
     const amount = (parseFloat(litres) || 0) * price
     setSaleForm(p => ({ ...p, dxp_litres: litres, dxp_amount_ghs: amount.toFixed(2) }))
+  }
+
+  const openStatement = async (creditor) => {
+    setSelectedCreditor(creditor)
+    setShowStatement(true)
+    setStatementLoading(true)
+    try {
+      const res = await api.get(`/creditors/payments?creditor_id=${creditor.id}`)
+      setStatementPayments(res.data)
+    } catch (err) {
+      showToast('error', 'Failed to load payment history', err.response?.data?.error)
+      setStatementPayments([])
+    } finally {
+      setStatementLoading(false)
+    }
+  }
+
+  // Combine credit sales (debits, increase balance owed) and payments
+  // (credits, reduce balance owed) into one chronological list with a
+  // running balance — this is the actual "statement" a creditor would
+  // expect: everything that happened, in order, with a running total.
+  const buildStatement = (creditor) => {
+    const sales = creditSales
+      .filter(s => s.creditor_id === creditor.id)
+      .map(s => ({
+        date: s.sale_date,
+        type: 'sale',
+        description: `Credit sale — ${parseFloat(s.sxp_litres || 0).toFixed(0)}L SXP, ${parseFloat(s.dxp_litres || 0).toFixed(0)}L DXP`,
+        amount: parseFloat(s.total_amount_ghs || 0)
+      }))
+    const payments = statementPayments.map(p => ({
+      date: p.payment_date,
+      type: 'payment',
+      description: `Payment${p.payment_method ? ' — ' + p.payment_method : ''}${p.reference ? ' (' + p.reference + ')' : ''}`,
+      amount: -parseFloat(p.amount_ghs || 0)
+    }))
+    const combined = [...sales, ...payments].sort((a, b) => a.date.localeCompare(b.date))
+    let running = 0
+    return combined.map(entry => {
+      running += entry.amount
+      return { ...entry, balance: running }
+    })
   }
 
   const updateSXP = (litres) => {
@@ -216,6 +261,50 @@ export default function Creditors() {
         </div>
       )}
 
+      {/* Statement modal */}
+      {showStatement && selectedCreditor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 640, maxHeight: '85vh', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
+            <div className="card-header">
+              <div>
+                <div className="card-title">{selectedCreditor.name} — statement</div>
+                <div className="card-subtitle">{selectedCreditor.contact_name} · {selectedCreditor.contact_phone}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => window.print()}><i className="ph ph-printer"></i> Print</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowStatement(false)}><i className="ph ph-x"></i></button>
+              </div>
+            </div>
+            {statementLoading ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-3)' }}>Loading statement...</div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Date</th><th>Description</th><th>Amount (GHS)</th><th>Balance (GHS)</th></tr>
+                  </thead>
+                  <tbody>
+                    {buildStatement(selectedCreditor).map((entry, i) => (
+                      <tr key={i}>
+                        <td>{entry.date}</td>
+                        <td>{entry.description}</td>
+                        <td className="td-calc" style={{ color: entry.amount < 0 ? 'var(--green)' : 'var(--text-1)' }}>
+                          {entry.amount < 0 ? '−' : ''}{Math.abs(entry.amount).toFixed(2)}
+                        </td>
+                        <td className="td-calc" style={{ fontWeight: 600 }}>{entry.balance.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {buildStatement(selectedCreditor).length === 0 && (
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No transactions yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid-2 mb-16">
         {/* Creditor cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -249,7 +338,7 @@ export default function Creditors() {
                 <button className="btn btn-primary btn-sm" onClick={e => { e.stopPropagation(); setSelectedCreditor(c); setShowPayment(true) }}>
                   <i className="ph ph-check"></i> Record payment
                 </button>
-                <button className="btn btn-ghost btn-sm"><i className="ph ph-file-text"></i> Statement</button>
+                <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); openStatement(c) }}><i className="ph ph-file-text"></i> Statement</button>
               </div>
             </div>
           ))}

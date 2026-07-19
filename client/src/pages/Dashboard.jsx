@@ -173,7 +173,7 @@ export default function Dashboard() {
       ))}
 
       {/* 5 KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 16, marginBottom: 20, marginTop: 16 }}>
+      <div className="dash-kpi-5" style={{ gap: 16, marginBottom: 20, marginTop: 16 }}>
         <div className="kpi-card kpi-red">
           <div className="kpi-label">Today's total sales</div>
           <div className="kpi-value">GHS {todayRevenue.toLocaleString(undefined, { minimumFractionDigits: 0 })}</div>
@@ -302,7 +302,7 @@ export default function Dashboard() {
       {/* Quick actions */}
       <div className="card">
         <div className="card-header"><div className="card-title">Quick actions</div></div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+        <div className="dash-quick-actions" style={{ gap: 8 }}>
           {[
             { label: "Enter meter readings", path: '/meter', icon: 'ph-gauge', color: 'var(--blue)' },
             { label: "Record tank dip", path: '/tank-stock', icon: 'ph-cylinder', color: 'var(--navy)' },

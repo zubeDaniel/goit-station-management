@@ -42,7 +42,7 @@ export default function Banking() {
     { key: 'nib_ghs', label: 'NIB' },
     { key: 'umb_momo_ghs', label: 'UMB / MoMo' },
     { key: 'gocard_ghs', label: 'GoCard' },
-    { key: 'coupons_50_ghs', label: 'Coupons @50' },
+    { key: 'coupons_50_ghs', label: 'Coupons @50', hint: 'Physical coupon deposit by denomination — separate from Sales Book\'s coupon revenue, which this reconciles against' },
     { key: 'coupons_100_ghs', label: 'Coupons @100' },
   ]
 
@@ -158,6 +158,7 @@ export default function Banking() {
                 <label className="form-label">{ch.label} (GHS)</label>
                 <input className="form-input" type="number" value={form[ch.key]}
                   onChange={e => setForm(p => ({ ...p, [ch.key]: e.target.value }))} />
+                {ch.hint && <span className="form-hint">{ch.hint}</span>}
               </div>
             ))}
             <div className="form-group">

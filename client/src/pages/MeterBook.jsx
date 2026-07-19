@@ -43,7 +43,14 @@ export default function MeterBook() {
     Promise.all([
       api.get('/meter'),
       api.get('/prices/current'),
-      api.get('/attendants'),
+      // Previously fetched unconditionally, which broke this entire screen
+      // for Viewer: GET /attendants is admin/manager-only on the backend,
+      // so Viewer's call 403'd, Promise.all rejected as a whole, and
+      // .then() never ran — meaning setReadings() never fired and Meter
+      // Book appeared completely empty for Viewer, even though GET /meter
+      // itself would have succeeded fine. Guarded the same way /setup
+      // already correctly was.
+      isAdminOrManager ? api.get('/attendants') : Promise.resolve({ data: [] }),
       isAdminOrManager ? api.get('/setup') : Promise.resolve(null),
     ]).then(([meterRes, pricesRes, attendantsRes, setupRes]) => {
       setReadings(meterRes.data)
@@ -54,6 +61,32 @@ export default function MeterBook() {
       }
     }).catch(console.error)
       .finally(() => setLoading(false))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-fill attendant per pump from the Shifts assignment for this
+  // date. Previously this screen only ever fetched the full attendant
+  // list for a blank dropdown — assigning someone to a pump on the Shifts
+  // screen had no effect here at all, so the same assignment had to be
+  // manually re-picked from the full staff list on every single entry.
+  // Still just a default: the dropdown stays editable so a wrong or
+  // missing shift assignment can be corrected here directly.
+  const applyShiftAttendants = useCallback(async (date) => {
+    try {
+      const res = await api.get(`/shifts?start_date=${date}&end_date=${date}`)
+      const shiftsForDate = res.data
+      setForm(prev => {
+        const updated = { ...prev }
+        PUMP_CONFIGS.forEach(({ key, pumpId }) => {
+          const shift = shiftsForDate.find(s => s.pump_id === pumpId)
+          if (shift) {
+            updated[key] = { ...updated[key], attendant_id: shift.attendant_id }
+          }
+        })
+        return updated
+      })
+    } catch (err) {
+      console.error('Failed to load shift assignments', err)
+    }
   }, [])
 
   // ── Auto-fill opening meters whenever readings or date changes ──
@@ -87,12 +120,19 @@ export default function MeterBook() {
     }
   }, [readings, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Shift-based attendant auto-fill runs once on mount too, independent of
+  // the meter-readings load (it doesn't depend on prior readings existing).
+  useEffect(() => {
+    applyShiftAttendants(form.reading_date)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Date change: re-fill meters + reset delivery ───────────
   const handleDateChange = (newDate) => {
     setDeliveryChecked(false)
     setDeliveryData(null)
     setForm(prev => ({ ...prev, reading_date: newDate }))
     autoFillOpeningMeters(readings, newDate)
+    applyShiftAttendants(newDate)
   }
 
   // ── Delivery checkbox: Option A ────────────────────────────

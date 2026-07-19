@@ -234,6 +234,21 @@ export default function ImportData() {
 
       const totalImported = results.reduce((s, r) => s + r.imported, 0)
       const totalSkipped = results.reduce((s, r) => s + r.skipped, 0)
+      const allWarnings = results.flatMap(r => r.warnings || [])
+
+      // Record the import — see server/routes/importData.js. The actual
+      // writes already happened above via the per-module endpoints; this
+      // just logs that it happened so it shows up in import history.
+      // Doesn't block the success toast if logging itself fails — the real
+      // data is already safely written by this point.
+      api.post('/import/execute', {
+        filename: file.name,
+        import_type: 'historical',
+        rows_imported: totalImported,
+        rows_skipped: totalSkipped,
+        warnings: allWarnings.slice(0, 50)
+      }).catch(err => showToast('warning', 'Import succeeded but the log entry failed', err.response?.data?.error || err.message))
+
       showToast(
         totalImported > 0 ? 'success' : 'warning',
         'Import complete',
@@ -266,6 +281,15 @@ export default function ImportData() {
 
       const res = await importSheet(workbook, selectedSheet, importType, creditorId)
       setResult({ results: [{ name: selectedSheet, label: SHEET_LABELS[importType], ...res }], unrecognised: [] })
+
+      api.post('/import/execute', {
+        filename: file.name,
+        import_type: 'historical',
+        rows_imported: res.imported,
+        rows_skipped: res.skipped,
+        warnings: (res.warnings || []).slice(0, 50)
+      }).catch(err => showToast('warning', 'Import succeeded but the log entry failed', err.response?.data?.error || err.message))
+
       showToast(
         res.imported > 0 ? 'success' : 'warning',
         'Import complete',

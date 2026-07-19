@@ -374,26 +374,26 @@
   /* ============================================================
      RESPONSIVE
      ============================================================ */
-  @media (max-width: 1024px) {
-    .kpi-grid { grid-template-columns: 1fr 1fr; }
-    .grid-4   { grid-template-columns: 1fr 1fr; }
-    .grid-3   { grid-template-columns: 1fr 1fr; }
-  }
-  @media (max-width: 767px) {
-    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-    .form-row, .form-row-3, .form-row-4 { grid-template-columns: 1fr 1fr; gap: 10px; }
-    .page-header { flex-direction: column; gap: 10px; }
-    .sidebar { display: none; }
-    .app-content { padding-bottom: 84px !important; }
-    .mobile-bottom-nav { display: block; }
-  }
+  /* ============================================================
+     DASHBOARD GRIDS (previously inline styles that ignored
+     media queries entirely — inline styles always beat stylesheet
+     rules, so no breakpoint could ever reach them)
+     ============================================================ */
+  .dash-kpi-5 { display: grid; grid-template-columns: repeat(5,1fr); }
+  .dash-quick-actions { display: grid; grid-template-columns: repeat(4,1fr); }
+
+  .sidebar { display: flex; }
 
   /* ============================================================
-     MOBILE BOTTOM NAV
+     MOBILE BOTTOM NAV — base rules must come BEFORE the media
+     queries below. With equal specificity, CSS resolves ties by
+     source order, not by which rule is inside a matching media
+     query — so if this were placed after the media query (as it
+     was before this fix), it would always win and keep the nav
+     hidden even on mobile, regardless of viewport width.
      ============================================================ */
   .mobile-bottom-nav {
-    display: none; /* shown only under the 767px media query above */
+    display: none; /* overridden to block by the 767px media query below */
     position: fixed;
     bottom: 0; left: 0; right: 0;
     background: var(--surface);
@@ -429,4 +429,23 @@
     color: var(--red);
     background: var(--red-subtle);
     font-weight: 500;
+  }
+
+  @media (max-width: 1024px) {
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .grid-4   { grid-template-columns: 1fr 1fr; }
+    .grid-3   { grid-template-columns: 1fr 1fr; }
+    .dash-kpi-5 { grid-template-columns: 1fr 1fr; }
+    .dash-quick-actions { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 767px) {
+    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .form-row, .form-row-3, .form-row-4 { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .page-header { flex-direction: column; gap: 10px; }
+    .sidebar { display: none; }
+    .app-content { padding-bottom: 84px !important; }
+    .mobile-bottom-nav { display: block; }
+    .dash-kpi-5 { grid-template-columns: 1fr; }
+    .dash-quick-actions { grid-template-columns: 1fr 1fr; }
   }

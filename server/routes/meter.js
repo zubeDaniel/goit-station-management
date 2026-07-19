@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager, allRoles } = require('../middleware/auth');
 
 // GET /api/meter
 router.get('/', authenticate, allRoles, async (req, res) => {
   try {
     const { start_date, end_date, pump_id } = req.query;
-    let query = supabaseAdmin
+    let query = req.supabaseAdmin
       .from('pump_meter_readings')
       .select('*, attendants(name)')
       .order('reading_date', { ascending: false });
@@ -44,7 +44,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     const litres_sold = parseFloat(closing_meter) - parseFloat(opening_meter || 0);
 
     // Effective price for this fuel type as of reading_date — not "current" price
-    const { data: priceRow } = await supabaseAdmin
+    const { data: priceRow } = await req.supabaseAdmin
       .from('fuel_prices')
       .select('price_per_litre')
       .eq('fuel_type', fuel_type)
@@ -55,7 +55,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 
     const amount_ghs = litres_sold * (parseFloat(priceRow?.price_per_litre) || 0);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('pump_meter_readings')
       .insert({
         reading_date, pump_id, fuel_type,
@@ -79,7 +79,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
   try {
     const { closing_meter, attendant_id, rtt_litres } = req.body;
 
-    const { data: existing, error: fetchError } = await supabaseAdmin
+    const { data: existing, error: fetchError } = await req.supabaseAdmin
       .from('pump_meter_readings')
       .select('reading_date, fuel_type, opening_meter, closing_meter')
       .eq('id', req.params.id)
@@ -92,7 +92,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
     const finalClosing = closing_meter !== undefined ? closing_meter : existing.closing_meter;
     const litres_sold = parseFloat(finalClosing) - parseFloat(existing.opening_meter || 0);
 
-    const { data: priceRow } = await supabaseAdmin
+    const { data: priceRow } = await req.supabaseAdmin
       .from('fuel_prices')
       .select('price_per_litre')
       .eq('fuel_type', existing.fuel_type)
@@ -103,7 +103,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     const amount_ghs = litres_sold * (parseFloat(priceRow?.price_per_litre) || 0);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('pump_meter_readings')
       .update({ closing_meter, attendant_id, amount_ghs, rtt_litres })
       .eq('id', req.params.id)

@@ -1,10 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
-// Helper: get setup row id
-const getSetupId = async () => {
+// Helper: get setup row id. Takes the per-request client explicitly —
+// this is a module-level function, not a route handler, so it has no
+// access to `req` at all. (This was the actual bug behind "req is not
+// defined": the earlier version referenced req.supabaseAdmin directly
+// from this scope, which doesn't exist here — a ReferenceError at
+// runtime that node --check's syntax-only validation can't catch, since
+// req.supabaseAdmin is syntactically valid regardless of whether req
+// exists in scope.)
+const getSetupId = async (supabaseAdmin) => {
   const { data, error } = await supabaseAdmin
     .from('station_setup')
     .select('id')
@@ -16,7 +23,7 @@ const getSetupId = async () => {
 // GET /api/setup
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('station_setup')
       .select('*')
       .single();
@@ -36,7 +43,7 @@ router.put('/', authenticate, adminOrManager, async (req, res) => {
       dealer_margin_per_litre, setup_completed
     } = req.body;
 
-    const id = await getSetupId();
+    const id = await getSetupId(req.supabaseAdmin);
 
     const updates = {};
     if (station_name !== undefined) updates.station_name = station_name;
@@ -52,7 +59,7 @@ router.put('/', authenticate, adminOrManager, async (req, res) => {
     }
     updates.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('station_setup')
       .update(updates)
       .eq('id', id)
@@ -74,13 +81,13 @@ router.post('/reset/soft', authenticate, adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'Type RESET to confirm' });
   }
   try {
-    const id = await getSetupId();
+    const id = await getSetupId(req.supabaseAdmin);
 
     // Clear setup data only — preserve operational data
     // audit_log is NEVER cleared
     const failures = [];
 
-    const { error: setupErr } = await supabaseAdmin
+    const { error: setupErr } = await req.supabaseAdmin
       .from('station_setup')
       .update({
         setup_completed: false,
@@ -90,13 +97,13 @@ router.post('/reset/soft', authenticate, adminOnly, async (req, res) => {
       .eq('id', id);
     if (setupErr) failures.push(`station_setup: ${setupErr.message}`);
 
-    const { error: pricesErr } = await supabaseAdmin
+    const { error: pricesErr } = await req.supabaseAdmin
       .from('fuel_prices')
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000');
     if (pricesErr) failures.push(`fuel_prices: ${pricesErr.message}`);
 
-    const { error: attendantsErr } = await supabaseAdmin
+    const { error: attendantsErr } = await req.supabaseAdmin
       .from('attendants')
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000');
@@ -144,15 +151,15 @@ router.post('/reset/full', authenticate, adminOnly, async (req, res) => {
     const failures = [];
 
     for (const table of tables) {
-      const { error: delErr } = await supabaseAdmin
+      const { error: delErr } = await req.supabaseAdmin
         .from(table)
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000');
       if (delErr) failures.push(`${table}: ${delErr.message}`);
     }
 
-    const id = await getSetupId();
-    const { error: setupErr } = await supabaseAdmin
+    const id = await getSetupId(req.supabaseAdmin);
+    const { error: setupErr } = await req.supabaseAdmin
       .from('station_setup')
       .update({
         setup_completed: false,

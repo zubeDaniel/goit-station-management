@@ -6,31 +6,23 @@ const { authenticate } = require('../middleware/auth');
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    console.log('Login attempt:', req.body.email);
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    console.log('Calling Supabase auth...');
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-    console.log('Supabase response - error:', error, 'data:', data ? 'exists' : 'null');
-
     if (error) {
-      console.error('Supabase auth error:', error.message);
       return res.status(401).json({ error: error.message });
     }
 
-    console.log('Getting user from users table...');
     const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, email, name, role')
       .eq('id', data.user.id)
       .single();
-
-    console.log('User data:', userData, 'User error:', userError);
 
     if (userError || !userData) {
       return res.status(401).json({ error: 'User not found in system' });
@@ -58,10 +50,24 @@ router.post('/login', async (req, res) => {
 // POST /api/auth/logout
 router.post('/logout', authenticate, async (req, res) => {
   try {
-    await supabase.auth.signOut();
+    // The previous version called supabase.auth.signOut() on the
+    // server's shared anon client — that client has no relationship
+    // to the specific token the user sent, so it was a no-op: the
+    // JWT stayed valid until natural expiry regardless. This actually
+    // revokes the session server-side via the Admin API, using the
+    // token that was in the Authorization header of this request.
+    //
+    // Scope 'global' revokes every active session for this account,
+    // not just this one device. Chosen deliberately: Viewer/attendant
+    // accounts are described in the PRD as used on shared phones, so
+    // a stolen or leftover token on a shared device should not survive
+    // a teammate's own logout. Trade-off: if the same account is
+    // legitimately open on two devices, both get logged out.
+    await supabaseAdmin.auth.admin.signOut(req.token, 'global');
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
-    res.status(500).json({ error: 'Logout failed' });
+    console.error('Logout error:', err.message);
+    res.status(500).json({ error: 'Logout failed — close your browser to be safe' });
   }
 });
 

@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly } = require('../middleware/auth');
 
 // GET /api/audit — Admin only
 router.get('/', authenticate, adminOnly, async (req, res) => {
   try {
     const { table_name, changed_by, start_date, end_date, limit = 100 } = req.query;
-    let query = supabaseAdmin
+    let query = req.supabaseAdmin
       .from('audit_log')
       .select('*, users(name, email)')
       .order('changed_at', { ascending: false })

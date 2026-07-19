@@ -52,7 +52,6 @@ export default function Layout() {
       <div className="sidebar" style={{
         width: 'var(--sidebar-w)',
         background: 'var(--sidebar-bg)',
-        display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
         overflowY: 'auto',

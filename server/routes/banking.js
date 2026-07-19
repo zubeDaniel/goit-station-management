@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOrManager } = require('../middleware/auth');
 
 // GET /api/banking
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-    let query = supabaseAdmin
+    let query = req.supabaseAdmin
       .from('banking')
       .select('*')
       .order('entry_date', { ascending: false });
@@ -43,7 +43,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       (parseFloat(coupons_100_ghs) || 0);
 
     // variance_vs_sales = total_banked − sales_book total for the same date
-    const { data: salesRow } = await supabaseAdmin
+    const { data: salesRow } = await req.supabaseAdmin
       .from('sales_book')
       .select('total_sales_ghs')
       .eq('entry_date', entry_date)
@@ -51,7 +51,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 
     const variance_vs_sales = total_banked_ghs - (parseFloat(salesRow?.total_sales_ghs) || 0);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('banking')
       .insert({
         entry_date,
@@ -93,7 +93,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
       (parseFloat(coupons_50_ghs) || 0) +
       (parseFloat(coupons_100_ghs) || 0);
 
-    const { data: salesRow } = await supabaseAdmin
+    const { data: salesRow } = await req.supabaseAdmin
       .from('sales_book')
       .select('total_sales_ghs')
       .eq('entry_date', entry_date)
@@ -101,7 +101,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     const variance_vs_sales = total_banked_ghs - (parseFloat(salesRow?.total_sales_ghs) || 0);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('banking')
       .update({
         nib_ghs: nib_ghs || 0,
@@ -125,7 +125,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 // DELETE /api/banking/:id
 router.delete('/:id', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await req.supabaseAdmin
       .from('banking')
       .delete()
       .eq('id', req.params.id);

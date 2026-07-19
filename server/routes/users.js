@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
 // GET /api/users
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('users')
       .select('id, email, name, role, created_at, last_login')
       .order('name');
@@ -32,7 +32,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     }
 
     // Create auth user
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: authError } = await req.supabaseAdmin.auth.admin.createUser({
       email, password,
       email_confirm: true,
       user_metadata: { name, role }
@@ -40,15 +40,30 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 
     if (authError) return res.status(500).json({ error: authError.message });
 
-    // Update role in users table (trigger creates the row with viewer default)
-    const { data, error } = await supabaseAdmin
+    // Update role in users table (trigger creates the row with viewer default).
+    // If this fails, we're left with a live Auth account whose users row is
+    // stuck at role='viewer' with a name derived from their email — a
+    // low-privilege ghost account, silently wrong. Roll the Auth account
+    // back rather than leaving that half-created state around; this is the
+    // mirror image of the orphan-cleanup already done on the delete path.
+    const { data, error } = await req.supabaseAdmin
       .from('users')
       .update({ name, role })
       .eq('id', authData.user.id)
       .select()
       .single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      const { error: rollbackError } = await req.supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+      if (rollbackError) {
+        console.error('Failed to roll back orphaned auth account', authData.user.id, rollbackError.message);
+        return res.status(500).json({
+          error: `User creation failed and automatic cleanup also failed. An orphaned account (${email}) may exist — an Admin should check User Management and remove it manually if present.`
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
+
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create user' });
@@ -61,7 +76,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
     const { name, role } = req.body;
 
     // Get target user
-    const { data: target } = await supabaseAdmin
+    const { data: target } = await req.supabaseAdmin
       .from('users')
       .select('role')
       .eq('id', req.params.id)
@@ -79,7 +94,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
       }
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('users')
       .update({ name, role })
       .eq('id', req.params.id)
@@ -100,7 +115,7 @@ router.delete('/:id', authenticate, adminOnly, async (req, res) => {
       return res.status(403).json({ error: 'You cannot delete your own account' });
     }
 
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(req.params.id);
+    const { error: authError } = await req.supabaseAdmin.auth.admin.deleteUser(req.params.id);
 
     // If the auth account is already gone (e.g. a previous delete attempt removed
     // it but left this database row behind), don't treat that as fatal — proceed
@@ -109,7 +124,7 @@ router.delete('/:id', authenticate, adminOnly, async (req, res) => {
       return res.status(500).json({ error: authError.message });
     }
 
-    const { error: dbError } = await supabaseAdmin
+    const { error: dbError } = await req.supabaseAdmin
       .from('users')
       .delete()
       .eq('id', req.params.id);

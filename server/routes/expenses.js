@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOrManager } = require('../middleware/auth');
 
 // GET /api/expenses
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
     const { start_date, end_date, category } = req.query;
-    let query = supabaseAdmin
+    let query = req.supabaseAdmin
       .from('expenses')
       .select('*')
       .is('deleted_at', null)
@@ -34,7 +34,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'expense_date, category, amount_ghs, and description are required' });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('expenses')
       .insert({
         expense_date, category,
@@ -55,7 +55,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 // DELETE /api/expenses/:id — soft delete
 router.delete('/:id', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await req.supabaseAdmin
       .from('expenses')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', req.params.id);

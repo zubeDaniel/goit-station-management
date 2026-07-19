@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
 // GET /api/prices
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('fuel_prices')
       .select('*')
       .order('effective_date', { ascending: false });
@@ -24,12 +24,17 @@ router.get('/current', authenticate, adminOrManager, async (req, res) => {
     const results = {};
 
     for (const fuel of ['SXP', 'DXP']) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await req.supabaseAdmin
         .from('fuel_prices')
         .select('*')
         .eq('fuel_type', fuel)
         .lte('effective_date', today)
+        // Secondary sort on created_at as a deterministic tie-break — two
+        // rows sharing the same effective_date (possible with existing
+        // pre-migration-007 data) should resolve to the most recently
+        // entered one, not an arbitrary one.
         .order('effective_date', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .single();
       if (!error) results[fuel] = data;
@@ -42,6 +47,12 @@ router.get('/current', authenticate, adminOrManager, async (req, res) => {
 });
 
 // POST /api/prices
+// Real upsert against the (fuel_type, effective_date) unique constraint
+// added in migrations/007 — updating the same day's price now correctly
+// overwrites that day's entry instead of creating an ambiguous duplicate.
+// Previously always inserted; two updates for the same date created two
+// rows, and which one GET /current showed was undefined — the reported
+// "doesn't update when I use it" symptom.
 router.post('/', authenticate, adminOrManager, async (req, res) => {
   try {
     const { fuel_type, price_per_litre, effective_date, npa_reference } = req.body;
@@ -49,9 +60,12 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'fuel_type, price_per_litre, and effective_date are required' });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('fuel_prices')
-      .insert({ fuel_type, price_per_litre, effective_date, npa_reference, updated_by: req.user.id })
+      .upsert(
+        { fuel_type, price_per_litre, effective_date, npa_reference, updated_by: req.user.id },
+        { onConflict: 'fuel_type,effective_date' }
+      )
       .select()
       .single();
 

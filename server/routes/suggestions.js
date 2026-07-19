@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
 // GET /api/suggestions
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('price_update_suggestions')
       .select('*, users!fetched_by(name)')
       .order('fetched_at', { ascending: false });
@@ -26,7 +26,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'fuel_type and suggested_price_per_litre are required' });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('price_update_suggestions')
       .insert({
         fuel_type, suggested_price_per_litre,
@@ -46,7 +46,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
 // POST /api/suggestions/:id/approve — Admin only
 router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
   try {
-    const { data: suggestion, error: fetchError } = await supabaseAdmin
+    const { data: suggestion, error: fetchError } = await req.supabaseAdmin
       .from('price_update_suggestions')
       .select('*')
       .eq('id', req.params.id)
@@ -57,7 +57,7 @@ router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
     }
 
     // Write to fuel_prices
-    const { error: priceError } = await supabaseAdmin.from('fuel_prices').insert({
+    const { error: priceError } = await req.supabaseAdmin.from('fuel_prices').insert({
       fuel_type: suggestion.fuel_type,
       price_per_litre: suggestion.suggested_price_per_litre,
       effective_date: new Date().toISOString().split('T')[0],
@@ -70,7 +70,7 @@ router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
     }
 
     // Mark approved
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('price_update_suggestions')
       .update({
         status: 'approved',
@@ -91,7 +91,7 @@ router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
 // POST /api/suggestions/:id/reject — Admin only
 router.post('/:id/reject', authenticate, adminOnly, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('price_update_suggestions')
       .update({
         status: 'rejected',

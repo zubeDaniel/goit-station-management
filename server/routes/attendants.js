@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOnly, adminOrManager } = require('../middleware/auth');
 
 // GET /api/attendants
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('attendants')
       .select('*')
       .order('name');
@@ -23,7 +23,7 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('attendants')
       .insert({ name, is_active: true })
       .select()
@@ -47,7 +47,7 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
       updates.deactivated_at = is_active ? null : new Date().toISOString();
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('attendants')
       .update(updates)
       .eq('id', req.params.id)

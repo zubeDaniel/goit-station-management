@@ -116,7 +116,7 @@ export default function SalesBook() {
   }
 
   const channels = [
-    { key: 'coupons_ghs', label: 'Coupons' },
+    { key: 'coupons_ghs', label: 'Coupons', hint: 'Revenue from coupon sales today — separate from Banking\'s coupon deposit, which reconciles against this' },
     { key: 'gocard_ghs', label: 'GoCard' },
     { key: 'momo_ghs', label: 'MoMo' },
     { key: 'merka_wood_ghs', label: 'Merka Wood', auto: true },
@@ -192,14 +192,15 @@ export default function SalesBook() {
                   readOnly={ch.auto}
                 />
                 {ch.auto && <span className="form-hint">Auto-filled from Creditors</span>}
+                {ch.hint && <span className="form-hint">{ch.hint}</span>}
               </div>
             ))}
           </div>
           <div className="form-group" style={{ marginBottom: 14, maxWidth: 220 }}>
             <label className="form-label">Meter amount (GHS)</label>
-            <input className="form-input" type="number" value={form.meter_amount_ghs}
-              onChange={e => setForm(p => ({ ...p, meter_amount_ghs: e.target.value }))}
-              placeholder="From meter book" />
+            <input className="form-input is-auto" type="number" value={form.meter_amount_ghs}
+              readOnly placeholder="From meter book" />
+            <span className="form-hint">Locked — always the true sum from Meter Book for this date, not editable. This is the number the whole Sales Book cross-check exists to protect.</span>
           </div>
 
           {/* Totals summary */}

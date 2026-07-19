@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { supabaseAdmin } = require('../config/supabase');
+// Uses req.supabaseAdmin (per-request, actor-attributed) attached by the auth middleware — see middleware/auth.js
 const { authenticate, adminOrManager } = require('../middleware/auth');
 
 // GET /api/reports
 router.get('/', authenticate, adminOrManager, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await req.supabaseAdmin
       .from('generated_reports')
       .select('*')
       .order('report_month', { ascending: false });
@@ -27,7 +27,7 @@ router.get('/:month', authenticate, adminOrManager, async (req, res) => {
       new Date(startDate).getMonth() + 1, 0
     ).toISOString().split('T')[0];
 
-    const { data: setup } = await supabaseAdmin
+    const { data: setup } = await req.supabaseAdmin
       .from('station_setup')
       .select('dealer_margin_per_litre, station_name')
       .single();
@@ -38,12 +38,12 @@ router.get('/:month', authenticate, adminOrManager, async (req, res) => {
       meterRes, salesRes, bankingRes,
       creditRes, expensesRes, tankRes
     ] = await Promise.all([
-      supabaseAdmin.from('pump_meter_readings').select('*').gte('reading_date', startDate).lte('reading_date', endDate),
-      supabaseAdmin.from('sales_book').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
-      supabaseAdmin.from('banking').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
-      supabaseAdmin.from('credit_sales').select('*, creditors(name)').gte('sale_date', startDate).lte('sale_date', endDate),
-      supabaseAdmin.from('expenses').select('*').gte('expense_date', startDate).lte('expense_date', endDate).is('deleted_at', null),
-      supabaseAdmin.from('tank_stock').select('*').gte('stock_date', startDate).lte('stock_date', endDate),
+      req.supabaseAdmin.from('pump_meter_readings').select('*').gte('reading_date', startDate).lte('reading_date', endDate),
+      req.supabaseAdmin.from('sales_book').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
+      req.supabaseAdmin.from('banking').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
+      req.supabaseAdmin.from('credit_sales').select('*, creditors(name)').gte('sale_date', startDate).lte('sale_date', endDate),
+      req.supabaseAdmin.from('expenses').select('*').gte('expense_date', startDate).lte('expense_date', endDate).is('deleted_at', null),
+      req.supabaseAdmin.from('tank_stock').select('*').gte('stock_date', startDate).lte('stock_date', endDate),
     ]);
 
     const meterReadings = meterRes.data || [];

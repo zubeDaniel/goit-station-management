@@ -12,11 +12,62 @@ export default function Shifts() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ shift_date: new Date().toISOString().split('T')[0], P1:'', P2:'', P3:'' })
 
+  // Editing/deleting a single existing shift record — kept separate from
+  // the "assign shifts" form above, which is for assigning all three
+  // pumps at once for a new date, not correcting one existing record.
+  const [editingShift, setEditingShift] = useState(null)
+  const [editForm, setEditForm] = useState({ shift_date: '', pump_id: '', attendant_id: '' })
+  const [editSaving, setEditSaving] = useState(false)
+
+  const openEditShift = (row) => {
+    setEditingShift(row)
+    setEditForm({ shift_date: row.shift_date, pump_id: row.pump_id, attendant_id: row.attendant_id })
+  }
+
+  const handleUpdateShift = async () => {
+    setEditSaving(true)
+    try {
+      await api.put(`/shifts/${editingShift.id}`, editForm)
+      showToast('success', 'Shift updated', editForm.shift_date)
+      setEditingShift(null)
+      const res = await api.get('/shifts')
+      setShifts(res.data)
+    } catch (err) {
+      showToast('error', 'Update failed', err.response?.data?.error)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const handleDeleteShift = async (id, label) => {
+    if (!confirm(`Delete this shift assignment (${label})? This cannot be undone.`)) return
+    try {
+      await api.delete(`/shifts/${id}`)
+      showToast('success', 'Shift deleted', label)
+      if (editingShift?.id === id) setEditingShift(null)
+      const res = await api.get('/shifts')
+      setShifts(res.data)
+    } catch (err) {
+      showToast('error', 'Delete failed', err.response?.data?.error)
+    }
+  }
+
   useEffect(() => {
-    Promise.all([api.get('/shifts'), api.get('/attendants')])
+    // Same bug as MeterBook.jsx had: /attendants is admin/manager-only,
+    // so Viewer's unconditional call 403'd, Promise.all rejected as a
+    // whole, and .then() never ran — meaning setShifts() never fired and
+    // Viewer saw an empty screen, even though GET /shifts itself succeeds
+    // fine for Viewer and already carries attendant names via a join
+    // (.select('*, attendants(name)') server-side). The separate
+    // attendants list is only actually used in the assignment form below,
+    // which Viewer can't see anyway.
+    Promise.all([
+      api.get('/shifts'),
+      isAdminOrManager ? api.get('/attendants') : Promise.resolve({ data: [] })
+    ])
       .then(([sRes, aRes]) => { setShifts(sRes.data); setAttendants(aRes.data) })
       .catch(console.error).finally(() => setLoading(false))
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     setSaving(true)
@@ -79,16 +130,65 @@ export default function Shifts() {
         <div className="card-header"><div className="card-title">Shift history</div></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Pump</th><th>Attendant</th></tr></thead>
+            <thead><tr><th>Date</th><th>Pump</th><th>Attendant</th>{isAdminOrManager && <th>Actions</th>}</tr></thead>
             <tbody>
               {shifts.slice(0,30).map(s => (
-                <tr key={s.id}><td>{s.shift_date}</td><td><span className="badge badge-navy">{s.pump_id}</span></td><td>{s.attendants?.name}</td></tr>
+                <tr key={s.id}>
+                  <td>{s.shift_date}</td>
+                  <td><span className="badge badge-navy">{s.pump_id}</span></td>
+                  <td>{s.attendants?.name}</td>
+                  {isAdminOrManager && (
+                    <td style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openEditShift(s)}><i className="ph ph-pencil-simple"></i></button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDeleteShift(s.id, `${s.pump_id} — ${s.shift_date}`)}><i className="ph ph-trash"></i></button>
+                    </td>
+                  )}
+                </tr>
               ))}
-              {shifts.length===0 && <tr><td colSpan={3} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>No shifts yet</td></tr>}
+              {shifts.length===0 && <tr><td colSpan={isAdminOrManager ? 4 : 3} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>No shifts yet</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+
+      {editingShift && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 380 }}>
+            <div className="card-header">
+              <div className="card-title">Edit shift assignment</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingShift(null)}><i className="ph ph-x"></i></button>
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Date</label>
+              <input className="form-input" type="date" value={editForm.shift_date}
+                onChange={e => setEditForm(p => ({ ...p, shift_date: e.target.value }))} />
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Pump</label>
+              <select className="form-select" value={editForm.pump_id}
+                onChange={e => setEditForm(p => ({ ...p, pump_id: e.target.value }))}>
+                <option value="P1">P1</option>
+                <option value="P2">P2</option>
+                <option value="P3">P3</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Attendant</label>
+              <select className="form-select" value={editForm.attendant_id}
+                onChange={e => setEditForm(p => ({ ...p, attendant_id: e.target.value }))}>
+                <option value="">Select attendant</option>
+                {attendants.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setEditingShift(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleUpdateShift} disabled={editSaving}>
+                <i className="ph ph-check"></i> {editSaving ? 'Saving...' : 'Update shift'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

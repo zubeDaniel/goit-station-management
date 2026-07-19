@@ -1,4 +1,4 @@
-const { supabase, supabaseAdmin } = require('../config/supabase');
+const { supabase, supabaseAdmin, createActorClient } = require('../config/supabase');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -26,6 +26,12 @@ const authenticate = async (req, res, next) => {
 
     req.user = userData;
     req.token = token;
+    // Per-request client carrying x-actor-id so audit_log_trigger()
+    // can correctly attribute UPDATE/DELETE to the person actually
+    // making the change, not the row's original creator. Routes
+    // should use req.supabaseAdmin instead of the shared module-level
+    // client for any write.
+    req.supabaseAdmin = createActorClient(userData.id);
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
