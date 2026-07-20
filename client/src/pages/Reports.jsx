@@ -45,8 +45,9 @@ export default function Reports() {
     showToast('info', 'Generating PDF...', 'This may take a few seconds')
     try {
       const token = localStorage.getItem('goil_token')
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/pdf/${month}`,
+        `${apiUrl}/pdf/${month}`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       if (!response.ok) throw new Error('Failed to fetch report data')
