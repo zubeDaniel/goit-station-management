@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
@@ -12,6 +13,23 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// express-rate-limit has been an installed dependency this whole time,
+// never actually wired up. Scoped specifically to /api/auth rather than
+// applied globally — this is the endpoint that matters most (unthrottled
+// login is a straightforward brute-force target, especially given
+// Viewer/attendant accounts are described as living on shared phones),
+// and a blanket limit across every route risks interfering with
+// legitimate heavy usage (bulk import, report generation) for no real
+// security benefit on those routes, which are already authenticated.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many attempts — please wait a few minutes and try again' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/auth', authLimiter);
 
 // Load routes one by one to find the crash
 console.log('Loading auth...');

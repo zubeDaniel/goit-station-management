@@ -56,14 +56,25 @@ router.post('/:id/approve', authenticate, adminOnly, async (req, res) => {
       return res.status(404).json({ error: 'Suggestion not found' });
     }
 
-    // Write to fuel_prices
-    const { error: priceError } = await req.supabaseAdmin.from('fuel_prices').insert({
-      fuel_type: suggestion.fuel_type,
-      price_per_litre: suggestion.suggested_price_per_litre,
-      effective_date: new Date().toISOString().split('T')[0],
-      npa_reference: suggestion.npa_reference,
-      updated_by: req.user.id
-    });
+    // Same upsert pattern as prices.js's POST route — this second write
+    // path to fuel_prices was missed when the unique constraint on
+    // (fuel_type, effective_date) was added in migration 007. A plain
+    // insert() here would throw a raw 23505 the first time an admin
+    // approves a second suggestion for the same fuel on the same day, and
+    // the suggestion would be stuck (price never applied, never marked
+    // approved either, since that update never runs after this fails).
+    const { error: priceError } = await req.supabaseAdmin
+      .from('fuel_prices')
+      .upsert(
+        {
+          fuel_type: suggestion.fuel_type,
+          price_per_litre: suggestion.suggested_price_per_litre,
+          effective_date: new Date().toISOString().split('T')[0],
+          npa_reference: suggestion.npa_reference,
+          updated_by: req.user.id
+        },
+        { onConflict: 'fuel_type,effective_date' }
+      );
 
     if (priceError) {
       return res.status(500).json({ error: `Failed to apply price: ${priceError.message}` });

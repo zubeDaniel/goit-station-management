@@ -37,6 +37,9 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'reading_date, pump_id, fuel_type, and closing_meter are required' });
     }
 
+    if (!Number.isFinite(Number(closing_meter)) || !Number.isFinite(Number(opening_meter))) {
+      return res.status(400).json({ error: 'opening_meter and closing_meter must be valid numbers' });
+    }
     if (closing_meter < opening_meter) {
       return res.status(400).json({ error: 'Closing meter cannot be less than opening meter' });
     }
@@ -90,6 +93,21 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
     }
 
     const finalClosing = closing_meter !== undefined ? closing_meter : existing.closing_meter;
+
+    // Same validation POST already has, applied here too — this route had
+    // no check at all, meaning a PUT could set closing_meter below
+    // opening_meter with no rejection, producing negative litres_sold and
+    // negative revenue. Also guards against a non-numeric closing_meter:
+    // `closing_meter < opening_meter` on a NaN comparison is always false
+    // in JS, so a malformed value would have silently passed the naive
+    // version of this check.
+    if (!Number.isFinite(Number(finalClosing)) || !Number.isFinite(Number(existing.opening_meter))) {
+      return res.status(400).json({ error: 'closing_meter must be a valid number' });
+    }
+    if (Number(finalClosing) < Number(existing.opening_meter)) {
+      return res.status(400).json({ error: 'Closing meter cannot be less than opening meter' });
+    }
+
     const litres_sold = parseFloat(finalClosing) - parseFloat(existing.opening_meter || 0);
 
     const { data: priceRow } = await req.supabaseAdmin

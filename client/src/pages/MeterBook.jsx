@@ -457,7 +457,7 @@ export default function MeterBook() {
           <table>
             <thead>
               <tr>
-                <th>Date</th><th>Pump</th><th>Fuel</th><th>Opening</th>
+                <th>Date</th><th>Pump</th><th>Fuel</th><th>Attendant</th><th>Opening</th>
                 <th>Closing</th><th>Litres sold</th><th>Amount (GHS)</th><th>RTT</th>
               </tr>
             </thead>
@@ -467,6 +467,7 @@ export default function MeterBook() {
                   <td>{r.reading_date}</td>
                   <td><span className="badge badge-navy">{r.pump_id}</span></td>
                   <td><span className={`badge ${r.fuel_type === 'SXP' ? 'badge-blue' : 'badge-amber'}`}>{r.fuel_type}</span></td>
+                  <td>{r.attendants?.name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
                   <td className="td-calc">{parseFloat(r.opening_meter).toFixed(2)}</td>
                   <td className="td-calc">{parseFloat(r.closing_meter).toFixed(2)}</td>
                   <td className="td-calc">{parseFloat(r.litres_sold).toFixed(2)}</td>
@@ -478,7 +479,7 @@ export default function MeterBook() {
               ))}
               {readings.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
+                  <td colSpan={9} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
                     No readings yet
                   </td>
                 </tr>
