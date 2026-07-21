@@ -170,4 +170,112 @@ router.post('/payments', authenticate, adminOrManager, async (req, res) => {
   }
 });
 
+// DELETE /api/creditors/credit-sales/:id
+// Soft-deletes the row and reverses its exact effect on the
+// creditor's balance — see migrations/008_creditor_reversal_functions.sql.
+// Only the creditor's single most recent transaction (sale or
+// payment) can be reversed this way; anything older is rejected
+// by the RPC with a clear error rather than silently corrupting
+// balances affected by later transactions.
+router.delete('/credit-sales/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { error } = await req.supabaseAdmin.rpc('reverse_credit_sale', {
+      p_id: req.params.id
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reverse credit sale' });
+  }
+});
+
+// PUT /api/creditors/credit-sales/:id
+// Implemented as reverse-then-reinsert inside a single Postgres
+// function (one transaction) — not two separate API calls, which
+// would reopen the exact race/partial-failure window migration 006
+// was written to close.
+router.put('/credit-sales/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { sale_date, sxp_litres, dxp_litres } = req.body;
+    if (!sale_date) return res.status(400).json({ error: 'sale_date is required' });
+
+    // Same server-side effective-price recomputation as POST — never
+    // trust a client-sent amount, since it may reflect "current" price
+    // rather than the price effective on the selected date.
+    const getEffectivePrice = async (fuelType) => {
+      const { data: priceRow } = await req.supabaseAdmin
+        .from('fuel_prices')
+        .select('price_per_litre')
+        .eq('fuel_type', fuelType)
+        .lte('effective_date', sale_date)
+        .order('effective_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return parseFloat(priceRow?.price_per_litre) || 0;
+    };
+
+    const sxpPrice = await getEffectivePrice('SXP');
+    const dxpPrice = await getEffectivePrice('DXP');
+    const computedSxpAmount = (parseFloat(sxp_litres) || 0) * sxpPrice;
+    const computedDxpAmount = (parseFloat(dxp_litres) || 0) * dxpPrice;
+
+    const { data, error } = await req.supabaseAdmin.rpc('edit_credit_sale', {
+      p_id: req.params.id,
+      p_sale_date: sale_date,
+      p_sxp_litres: sxp_litres || 0,
+      p_dxp_litres: dxp_litres || 0,
+      p_sxp_amount_ghs: computedSxpAmount,
+      p_dxp_amount_ghs: computedDxpAmount,
+      p_actor_id: req.user.id
+    }).single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to edit credit sale' });
+  }
+});
+
+// DELETE /api/creditors/payments/:id
+// Restores the creditor's exact pre-payment balance via the stored
+// balance_before_ghs snapshot — correct even if this payment
+// clamped the balance at zero on the way in (e.g. an overpayment).
+// See migrations/008_creditor_reversal_functions.sql for why a
+// naive "add the amount back" would be wrong in that case.
+router.delete('/payments/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { error } = await req.supabaseAdmin.rpc('reverse_creditor_payment', {
+      p_id: req.params.id
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reverse payment' });
+  }
+});
+
+// PUT /api/creditors/payments/:id
+router.put('/payments/:id', authenticate, adminOrManager, async (req, res) => {
+  try {
+    const { payment_date, amount_ghs, payment_method, reference } = req.body;
+    if (!payment_date || !amount_ghs) {
+      return res.status(400).json({ error: 'payment_date and amount_ghs are required' });
+    }
+
+    const { data, error } = await req.supabaseAdmin.rpc('edit_creditor_payment', {
+      p_id: req.params.id,
+      p_payment_date: payment_date,
+      p_amount_ghs: amount_ghs,
+      p_payment_method: payment_method,
+      p_reference: reference,
+      p_actor_id: req.user.id
+    }).single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to edit payment' });
+  }
+});
+
 module.exports = router;

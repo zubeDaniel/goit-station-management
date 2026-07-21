@@ -42,7 +42,12 @@ export default function MeterBook() {
   useEffect(() => {
     Promise.all([
       api.get('/meter'),
-      api.get('/prices/current'),
+      // GET /prices/current is admin/manager-only on the backend — same bug
+// class as the /attendants and /setup calls below. Unguarded here, it
+// 403'd for Viewer, rejected the whole Promise.all, and setReadings()
+// never fired — Meter Book appeared empty even though GET /meter and
+// the 10 existing readings were fine all along.
+isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
       // Previously fetched unconditionally, which broke this entire screen
       // for Viewer: GET /attendants is admin/manager-only on the backend,
       // so Viewer's call 403'd, Promise.all rejected as a whole, and
