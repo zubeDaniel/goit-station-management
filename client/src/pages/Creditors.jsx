@@ -15,6 +15,8 @@ export default function Creditors() {
   const [statementPayments, setStatementPayments] = useState([])
   const [statementLoading, setStatementLoading] = useState(false)
   const [selectedCreditor, setSelectedCreditor] = useState(null)
+  const [editingSaleId, setEditingSaleId] = useState(null)
+  const [editingPaymentId, setEditingPaymentId] = useState(null)
 
   const [saleForm, setSaleForm] = useState({
     sale_date: new Date().toISOString().split('T')[0],
@@ -62,14 +64,57 @@ export default function Creditors() {
   const handleSaveSale = async () => {
     setSaving(true)
     try {
-      await api.post('/creditors/credit-sales', saleForm)
-      showToast('success', 'Credit sale saved', saleForm.sale_date)
+      if (editingSaleId) {
+        await api.put(`/creditors/credit-sales/${editingSaleId}`, saleForm)
+        showToast('success', 'Credit sale updated', saleForm.sale_date)
+        setEditingSaleId(null)
+      } else {
+        await api.post('/creditors/credit-sales', saleForm)
+        showToast('success', 'Credit sale saved', saleForm.sale_date)
+      }
       await loadData()
       setSaleForm(p => ({ ...p, sxp_litres: '0', dxp_litres: '', sxp_amount_ghs: '0', dxp_amount_ghs: '' }))
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.error)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleEditSale = (row) => {
+    setEditingSaleId(row.id)
+    setSaleForm({
+      sale_date: row.sale_date,
+      creditor_id: row.creditor_id,
+      sxp_litres: String(row.sxp_litres || 0),
+      dxp_litres: String(row.dxp_litres || 0),
+      sxp_amount_ghs: String(row.sxp_amount_ghs || 0),
+      dxp_amount_ghs: String(row.dxp_amount_ghs || 0)
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEditSale = () => {
+    setEditingSaleId(null)
+    setSaleForm(p => ({ ...p, sxp_litres: '0', dxp_litres: '', sxp_amount_ghs: '0', dxp_amount_ghs: '' }))
+  }
+
+  // Only the creditor's single most recent transaction (sale or payment,
+  // across both tables) can be reversed — enforced server-side in
+  // reverse_credit_sale(). An older transaction is rejected with a clear
+  // message rather than silently corrupting balance effects from anything
+  // that happened after it. Surfaced here as a toast, not pre-computed
+  // client-side, since that would need the full payment history loaded
+  // for every creditor up front just to grey out a button.
+  const handleDeleteSale = async (id, date) => {
+    if (!confirm(`Reverse this credit sale (${date})? This will also reverse its effect on the creditor's balance. This cannot be undone.`)) return
+    try {
+      await api.delete(`/creditors/credit-sales/${id}`)
+      showToast('success', 'Credit sale reversed', date)
+      if (editingSaleId === id) handleCancelEditSale()
+      await loadData()
+    } catch (err) {
+      showToast('error', 'Reversal failed', err.response?.data?.error)
     }
   }
 
@@ -91,15 +136,67 @@ export default function Creditors() {
   const handleSavePayment = async () => {
     setSaving(true)
     try {
-      await api.post('/creditors/payments', { ...paymentForm, creditor_id: selectedCreditor.id })
-      showToast('success', 'Payment recorded', `GHS ${paymentForm.amount_ghs}`)
+      if (editingPaymentId) {
+        await api.put(`/creditors/payments/${editingPaymentId}`, paymentForm)
+        showToast('success', 'Payment updated', `GHS ${paymentForm.amount_ghs}`)
+        setEditingPaymentId(null)
+      } else {
+        await api.post('/creditors/payments', { ...paymentForm, creditor_id: selectedCreditor.id })
+        showToast('success', 'Payment recorded', `GHS ${paymentForm.amount_ghs}`)
+      }
       setShowPayment(false)
       setPaymentForm({ payment_date: new Date().toISOString().split('T')[0], amount_ghs: '', payment_method: '', reference: '' })
       await loadData()
+      await refreshStatementIfOpen()
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.error)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Statement is a separately-loaded snapshot (statementPayments), not
+  // derived live from the same state the main tables use — refresh it
+  // explicitly after any payment mutation so it doesn't show stale data
+  // if it's currently open for the creditor being edited.
+  const refreshStatementIfOpen = async () => {
+    if (!showStatement || !selectedCreditor) return
+    try {
+      const res = await api.get(`/creditors/payments?creditor_id=${selectedCreditor.id}`)
+      setStatementPayments(res.data)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleEditPayment = (payment) => {
+    setEditingPaymentId(payment.id)
+    setPaymentForm({
+      payment_date: payment.payment_date,
+      amount_ghs: String(payment.amount_ghs || 0),
+      payment_method: payment.payment_method || '',
+      reference: payment.reference || ''
+    })
+    setShowStatement(false)
+    setShowPayment(true)
+  }
+
+  const handleCancelEditPayment = () => {
+    setEditingPaymentId(null)
+    setPaymentForm({ payment_date: new Date().toISOString().split('T')[0], amount_ghs: '', payment_method: '', reference: '' })
+    setShowPayment(false)
+  }
+
+  const handleDeletePayment = async (id, amount) => {
+    if (!confirm(`Reverse this payment (GHS ${amount})? This will restore the creditor's exact prior balance. This cannot be undone.`)) return
+    try {
+      await api.delete(`/creditors/payments/${id}`)
+      showToast('success', 'Payment reversed', `GHS ${amount}`)
+      if (editingPaymentId === id) handleCancelEditPayment()
+      await loadData()
+      await refreshStatementIfOpen()
+    } catch (err) {
+      showToast('error', 'Reversal failed', err.response?.data?.error)
     }
   }
 
@@ -132,16 +229,19 @@ export default function Creditors() {
     const sales = creditSales
       .filter(s => s.creditor_id === creditor.id)
       .map(s => ({
+        id: s.id,
         date: s.sale_date,
         type: 'sale',
         description: `Credit sale — ${parseFloat(s.sxp_litres || 0).toFixed(0)}L SXP, ${parseFloat(s.dxp_litres || 0).toFixed(0)}L DXP`,
         amount: parseFloat(s.total_amount_ghs || 0)
       }))
     const payments = statementPayments.map(p => ({
+      id: p.id,
       date: p.payment_date,
       type: 'payment',
       description: `Payment${p.payment_method ? ' — ' + p.payment_method : ''}${p.reference ? ' (' + p.reference + ')' : ''}`,
-      amount: -parseFloat(p.amount_ghs || 0)
+      amount: -parseFloat(p.amount_ghs || 0),
+      raw: p
     }))
     const combined = [...sales, ...payments].sort((a, b) => a.date.localeCompare(b.date))
     let running = 0
@@ -222,8 +322,8 @@ export default function Creditors() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,28,68,0.5)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card" style={{ width: 440, boxShadow: 'var(--shadow-md)' }}>
             <div className="card-header">
-              <div className="card-title">Record payment — {selectedCreditor.name}</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowPayment(false)}><i className="ph ph-x"></i></button>
+              <div className="card-title">{editingPaymentId ? 'Editing payment' : 'Record payment'} — {selectedCreditor.name}</div>
+              <button className="btn btn-ghost btn-sm" onClick={handleCancelEditPayment}><i className="ph ph-x"></i></button>
             </div>
             <div className="form-row">
               <div className="form-group">
@@ -252,9 +352,9 @@ export default function Creditors() {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-              <button className="btn btn-ghost" onClick={() => setShowPayment(false)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={handleCancelEditPayment}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSavePayment} disabled={saving}>
-                <i className="ph ph-check"></i> {saving ? 'Saving...' : 'Record payment'}
+                <i className="ph ph-check"></i> {saving ? 'Saving...' : editingPaymentId ? 'Update payment' : 'Record payment'}
               </button>
             </div>
           </div>
@@ -281,7 +381,7 @@ export default function Creditors() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Date</th><th>Description</th><th>Amount (GHS)</th><th>Balance (GHS)</th></tr>
+                    <tr><th>Date</th><th>Description</th><th>Amount (GHS)</th><th>Balance (GHS)</th><th></th></tr>
                   </thead>
                   <tbody>
                     {buildStatement(selectedCreditor).map((entry, i) => (
@@ -292,10 +392,18 @@ export default function Creditors() {
                           {entry.amount < 0 ? '−' : ''}{Math.abs(entry.amount).toFixed(2)}
                         </td>
                         <td className="td-calc" style={{ fontWeight: 600 }}>{entry.balance.toFixed(2)}</td>
+                        <td style={{ display: 'flex', gap: 4 }}>
+                          {entry.type === 'payment' && (
+                            <>
+                              <button className="btn btn-ghost btn-sm" onClick={() => handleEditPayment(entry.raw)}><i className="ph ph-pencil-simple"></i></button>
+                              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDeletePayment(entry.id, entry.raw.amount_ghs)}><i className="ph ph-trash"></i></button>
+                            </>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     {buildStatement(selectedCreditor).length === 0 && (
-                      <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No transactions yet</td></tr>
+                      <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No transactions yet</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -352,7 +460,10 @@ export default function Creditors() {
 
         {/* New credit sale form */}
         <div className="card">
-          <div className="card-header"><div className="card-title">New credit sale</div></div>
+          <div className="card-header">
+            <div className="card-title">{editingSaleId ? `Editing credit sale — ${saleForm.sale_date}` : 'New credit sale'}</div>
+            {editingSaleId && <span className="badge badge-amber">Editing</span>}
+          </div>
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Date</label>
@@ -389,9 +500,12 @@ export default function Creditors() {
             <span>Total amount</span>
             <span className="td-calc">GHS {totalSale.toFixed(2)}</span>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSaveSale} disabled={saving}>
-            <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : 'Save credit sale'}
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            {editingSaleId && <button className="btn btn-ghost" onClick={handleCancelEditSale}>Cancel</button>}
+            <button className="btn btn-primary" style={{ flex: editingSaleId ? 'none' : 1, justifyContent: 'center' }} onClick={handleSaveSale} disabled={saving}>
+              <i className="ph ph-floppy-disk"></i> {saving ? 'Saving...' : editingSaleId ? 'Update credit sale' : 'Save credit sale'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -403,7 +517,7 @@ export default function Creditors() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Date</th><th>SXP (L)</th><th>DXP (L)</th><th>SXP amt</th><th>DXP amt</th><th>Total</th></tr>
+              <tr><th>Date</th><th>SXP (L)</th><th>DXP (L)</th><th>SXP amt</th><th>DXP amt</th><th>Total</th><th></th></tr>
             </thead>
             <tbody>
               {filteredSales.slice(0, 20).map(s => (
@@ -414,10 +528,14 @@ export default function Creditors() {
                   <td className="td-calc">{parseFloat(s.sxp_amount_ghs) > 0 ? parseFloat(s.sxp_amount_ghs).toFixed(2) : '—'}</td>
                   <td className="td-calc">{parseFloat(s.dxp_amount_ghs).toFixed(2)}</td>
                   <td className="td-calc" style={{ fontWeight: 700 }}>GHS {parseFloat(s.total_amount_ghs).toFixed(2)}</td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleEditSale(s)}><i className="ph ph-pencil-simple"></i></button>
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDeleteSale(s.id, s.sale_date)}><i className="ph ph-trash"></i></button>
+                  </td>
                 </tr>
               ))}
               {filteredSales.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No credit sales yet</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>No credit sales yet</td></tr>
               )}
               {filteredSales.length > 0 && (
                 <tr className="tr-total">
@@ -427,6 +545,7 @@ export default function Creditors() {
                   <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.sxp_amount_ghs || 0), 0).toFixed(2)}</strong></td>
                   <td className="td-calc"><strong>{filteredSales.reduce((s, cs) => s + parseFloat(cs.dxp_amount_ghs || 0), 0).toFixed(2)}</strong></td>
                   <td className="td-calc" style={{ fontWeight: 700 }}>GHS {monthTotal.toFixed(2)}</td>
+                  <td></td>
                 </tr>
               )}
             </tbody>
