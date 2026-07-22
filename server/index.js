@@ -31,46 +31,25 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
-// Load routes one by one to find the crash
-console.log('Loading auth...');
 app.use('/api/auth', require('./routes/auth'));
-console.log('Loading setup...');
 app.use('/api/setup', require('./routes/setup'));
-console.log('Loading prices...');
 app.use('/api/prices', require('./routes/prices'));
-console.log('Loading attendants...');
 app.use('/api/attendants', require('./routes/attendants'));
-console.log('Loading meter...');
 app.use('/api/meter', require('./routes/meter'));
-console.log('Loading tankStock...');
 app.use('/api/tank-stock', require('./routes/tankstock'));
-console.log('Loading deliveries...');
 app.use('/api/deliveries', require('./routes/deliveries'));
-console.log('Loading creditors...');
 app.use('/api/creditors', require('./routes/creditors'));
-console.log('Loading sales...');
 app.use('/api/sales', require('./routes/sales'));
-console.log('Loading banking...');
 app.use('/api/banking', require('./routes/banking'));
-console.log('Loading expenses...');
 app.use('/api/expenses', require('./routes/expenses'));
-console.log('Loading compliance...');
 app.use('/api/compliance', require('./routes/compliance'));
-console.log('Loading shifts...');
 app.use('/api/shifts', require('./routes/shifts'));
-console.log('Loading reports...');
 app.use('/api/reports', require('./routes/reports'));
-console.log('Loading users...');
 app.use('/api/users', require('./routes/users'));
-console.log('Loading import...');
 app.use('/api/import', require('./routes/importData'));
-console.log('Loading audit...');
 app.use('/api/audit', require('./routes/audit'));
-console.log('Loading suggestions...');
 app.use('/api/suggestions', require('./routes/suggestions'));
-console.log('All routes loaded.');
 app.use('/api/pdf', require('./routes/pdf'));
-console.log('Loading pdf...');
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

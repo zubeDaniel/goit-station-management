@@ -52,6 +52,17 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!entry_date) {
       return res.status(400).json({ error: 'entry_date is required' });
     }
+    // This table is cross-checked against meter_amount_ghs specifically to
+    // catch reporting mismatches — a negative channel value would defeat
+    // that check silently instead of surfacing a real variance.
+    for (const [field, value] of Object.entries({ coupons_ghs, gocard_ghs, momo_ghs, merka_wood_ghs, genset_ghs, lubricant_ghs })) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ error: `${field} must be a non-negative number` });
+      }
+    }
+    if (entry_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'entry_date cannot be in the future' });
+    }
 
     const meterAmountGhs = await deriveMeterAmount(req.supabaseAdmin, entry_date);
 
@@ -105,6 +116,12 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     if (fetchError || !existing) {
       return res.status(404).json({ error: 'Sales entry not found' });
+    }
+
+    for (const [field, value] of Object.entries({ coupons_ghs, gocard_ghs, momo_ghs, merka_wood_ghs, genset_ghs, lubricant_ghs })) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ error: `${field} must be a non-negative number` });
+      }
     }
 
     const meterAmountGhs = await deriveMeterAmount(req.supabaseAdmin, existing.entry_date);

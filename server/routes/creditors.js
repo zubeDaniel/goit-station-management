@@ -212,6 +212,15 @@ router.put('/credit-sales/:id', authenticate, adminOrManager, async (req, res) =
     const { sale_date, sxp_litres, dxp_litres } = req.body;
     if (!sale_date) return res.status(400).json({ error: 'sale_date is required' });
 
+    // Same guard as POST /credit-sales — missed here originally even
+    // though this is the exact same field, edited via a different route.
+    if (sxp_litres !== undefined && (!Number.isFinite(Number(sxp_litres)) || Number(sxp_litres) < 0)) {
+      return res.status(400).json({ error: 'sxp_litres must be a non-negative number' });
+    }
+    if (dxp_litres !== undefined && (!Number.isFinite(Number(dxp_litres)) || Number(dxp_litres) < 0)) {
+      return res.status(400).json({ error: 'dxp_litres must be a non-negative number' });
+    }
+
     // Same server-side effective-price recomputation as POST — never
     // trust a client-sent amount, since it may reflect "current" price
     // rather than the price effective on the selected date.
@@ -273,6 +282,10 @@ router.put('/payments/:id', authenticate, adminOrManager, async (req, res) => {
     const { payment_date, amount_ghs, payment_method, reference } = req.body;
     if (!payment_date || !amount_ghs) {
       return res.status(400).json({ error: 'payment_date and amount_ghs are required' });
+    }
+    // Same guard as POST /payments — missed here originally.
+    if (!Number.isFinite(Number(amount_ghs)) || Number(amount_ghs) <= 0) {
+      return res.status(400).json({ error: 'amount_ghs must be a positive number' });
     }
 
     const { data, error } = await req.supabaseAdmin.rpc('edit_creditor_payment', {

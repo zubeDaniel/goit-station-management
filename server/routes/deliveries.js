@@ -51,6 +51,9 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (actual_litres !== undefined && (!Number.isFinite(Number(actual_litres)) || Number(actual_litres) < 0)) {
       return res.status(400).json({ error: 'actual_litres must be a non-negative number' });
     }
+    if (delivery_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'delivery_date cannot be in the future' });
+    }
 
     const { data, error } = await req.supabaseAdmin
       .from('tanker_deliveries')
@@ -90,6 +93,9 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
     }
     if (actual_litres !== undefined && (!Number.isFinite(Number(actual_litres)) || Number(actual_litres) < 0)) {
       return res.status(400).json({ error: 'actual_litres must be a non-negative number' });
+    }
+    if (delivery_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'delivery_date cannot be in the future' });
     }
 
     // shortage_litres is GENERATED ALWAYS AS (expected_litres - actual_litres)

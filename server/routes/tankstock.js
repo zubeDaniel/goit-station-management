@@ -78,6 +78,20 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!stock_date || !tank_id || !fuel_type || closing_stock_dip === undefined) {
       return res.status(400).json({ error: 'stock_date, tank_id, fuel_type, and closing_stock_dip are required' });
     }
+    // closing_stock_dip is a physical dip-stick reading — can't legitimately
+    // be negative, and it feeds directly into expected_variance, the number
+    // this whole module exists to keep trustworthy for catching shortage.
+    if (!Number.isFinite(Number(closing_stock_dip)) || Number(closing_stock_dip) < 0) {
+      return res.status(400).json({ error: 'closing_stock_dip must be a non-negative number' });
+    }
+    if (delivery_litres !== undefined && (!Number.isFinite(Number(delivery_litres)) || Number(delivery_litres) < 0)) {
+      return res.status(400).json({ error: 'delivery_litres must be a non-negative number' });
+    }
+    // A dip reading dated in the future doesn't correspond to a physical
+    // measurement that's happened yet.
+    if (stock_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'stock_date cannot be in the future' });
+    }
 
     // opening_stock is locked to the previous day's actual closing dip for
     // this tank. The only time the client's value is used is when no prior
@@ -140,6 +154,12 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     if (closing_stock_dip === undefined) {
       return res.status(400).json({ error: 'closing_stock_dip is required' });
+    }
+    if (!Number.isFinite(Number(closing_stock_dip)) || Number(closing_stock_dip) < 0) {
+      return res.status(400).json({ error: 'closing_stock_dip must be a non-negative number' });
+    }
+    if (delivery_litres !== undefined && (!Number.isFinite(Number(delivery_litres)) || Number(delivery_litres) < 0)) {
+      return res.status(400).json({ error: 'delivery_litres must be a non-negative number' });
     }
 
     const { data: existing, error: fetchError } = await req.supabaseAdmin

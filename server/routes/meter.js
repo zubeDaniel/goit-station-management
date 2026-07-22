@@ -43,6 +43,9 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (closing_meter < opening_meter) {
       return res.status(400).json({ error: 'Closing meter cannot be less than opening meter' });
     }
+    if (reading_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'reading_date cannot be in the future' });
+    }
 
     const litres_sold = parseFloat(closing_meter) - parseFloat(opening_meter || 0);
 
