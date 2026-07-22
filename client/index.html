@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js" integrity="sha384-cPFV+/abYd3INVFHPmSKpBmcnH+Q+bTZW7dv/EiuShUNPkHyFmRF8PsL7Ibfvunk" crossorigin="anonymous"></script>
     <!-- xlsx 0.18.5 (previously loaded from cdnjs) had CVE-2023-30533
          (prototype pollution, CVSS 7.5) and CVE-2024-22363 (ReDoS), both
          triggered by reading a crafted file — directly relevant here
@@ -12,8 +12,11 @@
          files. SheetJS never published the fix (0.19.3+) to npm/cdnjs
          due to an account issue, so `npm audit fix` can't catch or
          resolve this — it has to be a direct CDN swap to their own
-         patched-version CDN, which is what this is. -->
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+         patched-version CDN, which is what this is. SRI hash below
+         pins this exact build — if SheetJS ever silently changes what
+         this URL serves, the script fails to load rather than running
+         unverified code. -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" integrity="sha384-gx12pQMMYnabkTgbCHqqrT65RwDnXI/f/dU2H9JUmT0KUeiMF5bf+yroQBmX0Nuk" crossorigin="anonymous"></script>
     <title>T-Man Kuntunso GOIL</title>
   </head>
   <body>

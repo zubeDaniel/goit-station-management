@@ -121,9 +121,15 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     const amount_ghs = litres_sold * (parseFloat(priceRow?.price_per_litre) || 0);
 
+    // Write finalClosing explicitly — the value actually validated and used
+    // for litres_sold/amount_ghs above. The raw closing_meter previously
+    // written here only worked when unset because JSON.stringify silently
+    // drops undefined keys before the request body is sent; anyone changing
+    // that defaulting logic later would have silently reintroduced the
+    // negative-litres bug this validation exists to prevent.
     const { data, error } = await req.supabaseAdmin
       .from('pump_meter_readings')
-      .update({ closing_meter, attendant_id, amount_ghs, rtt_litres })
+      .update({ closing_meter: finalClosing, attendant_id, amount_ghs, rtt_litres })
       .eq('id', req.params.id)
       .select()
       .single();

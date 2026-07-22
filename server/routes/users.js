@@ -75,12 +75,22 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
   try {
     const { name, role } = req.body;
 
-    // Get target user
-    const { data: target } = await req.supabaseAdmin
+    // Get target user. Error explicitly captured and checked — .single()
+    // throws when the ID doesn't exist, and swallowing that silently here
+    // meant a nonexistent-user PUT fell through to the final UPDATE's own
+    // .single() failure instead, surfacing as a raw 500 with a leaked
+    // Postgres message rather than a clean 404. No security implication
+    // (the request still failed either way, before touching any data) —
+    // this is a correctness/consistency fix, not a vulnerability fix.
+    const { data: target, error: targetError } = await req.supabaseAdmin
       .from('users')
       .select('role')
       .eq('id', req.params.id)
       .single();
+
+    if (targetError || !target) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     // Nobody can change their own role — prevents accidental self-demotion/lockout
     if (req.params.id === req.user.id && role && role !== req.user.role) {

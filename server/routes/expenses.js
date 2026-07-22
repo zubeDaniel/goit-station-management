@@ -33,6 +33,9 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!expense_date || !category || !amount_ghs || !description) {
       return res.status(400).json({ error: 'expense_date, category, amount_ghs, and description are required' });
     }
+    if (!Number.isFinite(Number(amount_ghs)) || Number(amount_ghs) <= 0) {
+      return res.status(400).json({ error: 'amount_ghs must be a positive number' });
+    }
 
     const { data, error } = await req.supabaseAdmin
       .from('expenses')

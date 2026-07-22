@@ -71,6 +71,16 @@ router.post('/credit-sales', authenticate, adminOrManager, async (req, res) => {
     if (!sale_date || !creditor_id) {
       return res.status(400).json({ error: 'sale_date and creditor_id are required' });
     }
+    // Both litres fields are optional (a sale can be one fuel type only),
+    // so 0 must stay valid — only reject non-numeric or negative values.
+    // These drive the server-computed amount below, so a negative value
+    // here would otherwise produce negative revenue on a credit sale.
+    if (sxp_litres !== undefined && (!Number.isFinite(Number(sxp_litres)) || Number(sxp_litres) < 0)) {
+      return res.status(400).json({ error: 'sxp_litres must be a non-negative number' });
+    }
+    if (dxp_litres !== undefined && (!Number.isFinite(Number(dxp_litres)) || Number(dxp_litres) < 0)) {
+      return res.status(400).json({ error: 'dxp_litres must be a non-negative number' });
+    }
 
     // Recompute amounts server-side using the price effective on sale_date —
     // not whatever the client sent, which uses "current" price regardless of
@@ -146,6 +156,9 @@ router.post('/payments', authenticate, adminOrManager, async (req, res) => {
 
     if (!payment_date || !creditor_id || !amount_ghs) {
       return res.status(400).json({ error: 'payment_date, creditor_id, and amount_ghs are required' });
+    }
+    if (!Number.isFinite(Number(amount_ghs)) || Number(amount_ghs) <= 0) {
+      return res.status(400).json({ error: 'amount_ghs must be a positive number' });
     }
 
     // Atomic — see migrations/006_creditor_balance_functions.sql. The

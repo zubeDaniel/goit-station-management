@@ -43,6 +43,14 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!delivery_date || !fuel_type || !tank_id || !bol_number || !truck_registration) {
       return res.status(400).json({ error: 'delivery_date, fuel_type, tank_id, bol_number, and truck_registration are required' });
     }
+    // expected_litres/actual_litres are optional (default 0), so 0 must stay
+    // valid — only reject non-numeric or negative values, not falsy-but-zero.
+    if (expected_litres !== undefined && (!Number.isFinite(Number(expected_litres)) || Number(expected_litres) < 0)) {
+      return res.status(400).json({ error: 'expected_litres must be a non-negative number' });
+    }
+    if (actual_litres !== undefined && (!Number.isFinite(Number(actual_litres)) || Number(actual_litres) < 0)) {
+      return res.status(400).json({ error: 'actual_litres must be a non-negative number' });
+    }
 
     const { data, error } = await req.supabaseAdmin
       .from('tanker_deliveries')
@@ -74,6 +82,14 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     if (!delivery_date || !fuel_type || !tank_id || !bol_number || !truck_registration) {
       return res.status(400).json({ error: 'delivery_date, fuel_type, tank_id, bol_number, and truck_registration are required' });
+    }
+    // expected_litres/actual_litres are optional (default 0), so 0 must stay
+    // valid — only reject non-numeric or negative values, not falsy-but-zero.
+    if (expected_litres !== undefined && (!Number.isFinite(Number(expected_litres)) || Number(expected_litres) < 0)) {
+      return res.status(400).json({ error: 'expected_litres must be a non-negative number' });
+    }
+    if (actual_litres !== undefined && (!Number.isFinite(Number(actual_litres)) || Number(actual_litres) < 0)) {
+      return res.status(400).json({ error: 'actual_litres must be a non-negative number' });
     }
 
     // shortage_litres is GENERATED ALWAYS AS (expected_litres - actual_litres)

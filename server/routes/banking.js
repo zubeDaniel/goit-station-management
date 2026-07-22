@@ -35,6 +35,16 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       return res.status(400).json({ error: 'entry_date is required' });
     }
 
+    // All five channel amounts are optional (default 0), so 0 must stay
+    // valid — only reject non-numeric or negative values. Same gap already
+    // fixed in prices.js/expenses.js/creditors.js/deliveries.js; missing
+    // here too.
+    for (const [field, value] of Object.entries({ nib_ghs, umb_momo_ghs, gocard_ghs, coupons_50_ghs, coupons_100_ghs })) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ error: `${field} must be a non-negative number` });
+      }
+    }
+
     const total_banked_ghs =
       (parseFloat(nib_ghs) || 0) +
       (parseFloat(umb_momo_ghs) || 0) +
@@ -100,6 +110,12 @@ router.put('/:id', authenticate, adminOrManager, async (req, res) => {
 
     if (fetchError || !existing) {
       return res.status(404).json({ error: 'Banking entry not found' });
+    }
+
+    for (const [field, value] of Object.entries({ nib_ghs, umb_momo_ghs, gocard_ghs, coupons_50_ghs, coupons_100_ghs })) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ error: `${field} must be a non-negative number` });
+      }
     }
 
     const total_banked_ghs =

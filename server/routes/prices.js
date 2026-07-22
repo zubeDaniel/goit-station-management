@@ -59,6 +59,9 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!fuel_type || !price_per_litre || !effective_date) {
       return res.status(400).json({ error: 'fuel_type, price_per_litre, and effective_date are required' });
     }
+    if (!Number.isFinite(Number(price_per_litre)) || Number(price_per_litre) <= 0) {
+      return res.status(400).json({ error: 'price_per_litre must be a positive number' });
+    }
 
     const { data, error } = await req.supabaseAdmin
       .from('fuel_prices')
