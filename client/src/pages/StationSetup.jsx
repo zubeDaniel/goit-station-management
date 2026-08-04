@@ -15,7 +15,7 @@ export default function StationSetup() {
   const [resetConfirm, setResetConfirm] = useState('')
   const [newAttendantName, setNewAttendantName] = useState('')
 
-  const [wizardData, setWizardData] = useState({
+  const freshWizardData = () => ({
     station_name: '',
     dealer_code: '',
     location: '',
@@ -36,6 +36,8 @@ export default function StationSetup() {
     tank_b_volume: '',
     tank_date: new Date().toISOString().split('T')[0],
   })
+
+  const [wizardData, setWizardData] = useState(freshWizardData())
 
   useEffect(() => {
     Promise.all([api.get('/setup'), api.get('/attendants')])
@@ -241,6 +243,19 @@ export default function StationSetup() {
       await api.post(`/setup/reset/${type}`, { confirmation: 'RESET' })
       showToast('success', `${type === 'soft' ? 'Soft' : 'Full'} reset complete`, 'Audit log untouched')
       setResetConfirm('')
+
+      // The backend correctly clears setup_completed to false (and wipes
+      // fuel_prices/attendants) on reset, but this component's in-memory
+      // `setup` and `attendants` state was never refreshed afterward — so
+      // setup.setup_completed stayed stuck at its stale pre-reset value.
+      // That's what was locking Steps 3/4 of the wizard even right after a
+      // genuine reset: the check was reading old state, not the real
+      // database. Also clear wizardData so a freshly-reopened wizard
+      // doesn't show the previous station's old values.
+      const [setupRes, attRes] = await Promise.all([api.get('/setup'), api.get('/attendants')])
+      setSetup(setupRes.data)
+      setAttendants(attRes.data)
+      setWizardData(freshWizardData())
     } catch (err) {
       showToast('error', 'Reset failed', err.response?.data?.error)
     }
