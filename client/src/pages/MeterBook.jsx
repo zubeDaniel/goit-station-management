@@ -24,6 +24,16 @@ export default function MeterBook() {
   const [saving, setSaving]       = useState(false)
   const [dealerMargin, setDealerMargin] = useState(0.30)
 
+  // Maps pump key (e.g. 'P1_SXP') -> id of the existing pump_meter_readings
+  // row for the currently selected date, if one was already saved. Empty
+  // for a key means "no entry yet for this pump/fuel on this date" — save
+  // will POST. A present id means "already saved" — save will PUT instead,
+  // which is what was missing entirely before: handleSave always POSTed,
+  // so reopening an already-entered day and hitting Save collided with the
+  // (reading_date, pump_id, fuel_type) unique constraint with a raw
+  // Postgres error and no way to actually correct the entry.
+  const [existingIds, setExistingIds] = useState({})
+
   // Delivery state — Option A: checkbox only, fetches from tanker_deliveries
   const [deliveryChecked, setDeliveryChecked]   = useState(false)
   const [deliveryFetching, setDeliveryFetching] = useState(false)
@@ -118,10 +128,44 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
     })
   }, [])
 
+  // ── Detect an already-saved reading for the selected date ──
+  // For each pump+fuel, look for an exact match on reading_date (not
+  // "strictly before", like autoFillOpeningMeters above — this is looking
+  // for a reading ON this date, not the prior baseline). When found, load
+  // its real stored values into the form and record its id in existingIds
+  // so handleSave knows to PUT that row instead of blind-POSTing a
+  // duplicate. Runs after autoFillOpeningMeters/applyShiftAttendants so it
+  // can override their guesses with the actual saved record where one
+  // exists — ground truth wins over a shift-assignment default.
+  const applyExistingReadings = useCallback((allReadings, date) => {
+    const idsForDate = {}
+    setForm(prev => {
+      const updated = { ...prev }
+      PUMP_CONFIGS.forEach(({ key, pumpId, fuel }) => {
+        const existing = allReadings.find(
+          r => r.pump_id === pumpId && r.fuel_type === fuel && r.reading_date === date
+        )
+        if (existing) {
+          idsForDate[key] = existing.id
+          updated[key] = {
+            ...updated[key],
+            opening_meter: parseFloat(existing.opening_meter).toFixed(2),
+            closing_meter: String(existing.closing_meter),
+            attendant_id:  existing.attendant_id || '',
+            rtt_litres:    existing.rtt_litres ? String(existing.rtt_litres) : '',
+          }
+        }
+      })
+      return updated
+    })
+    setExistingIds(idsForDate)
+  }, [])
+
   // Run auto-fill on mount (readings available) and on date change
   useEffect(() => {
     if (!loading && readings.length > 0) {
       autoFillOpeningMeters(readings, form.reading_date)
+      applyExistingReadings(readings, form.reading_date)
     }
   }, [readings, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -131,13 +175,45 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
     applyShiftAttendants(form.reading_date)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Date change: re-fill meters + reset delivery ───────────
+  // ── Date change: reset, re-fill meters + reset delivery ────
+  // Previously this never reset closing_meter/attendant_id/rtt_litres, so
+  // switching dates without saving left stale values from the old date
+  // sitting in the form. Reset to blank first, then let auto-fill and
+  // existing-entry detection repopulate correctly for the new date.
   const handleDateChange = (newDate) => {
     setDeliveryChecked(false)
     setDeliveryData(null)
-    setForm(prev => ({ ...prev, reading_date: newDate }))
+    setExistingIds({})
+    setForm(prev => ({
+      ...prev,
+      reading_date: newDate,
+      P1_SXP: emptyPump(),
+      P1_DXP: emptyPump(),
+      P2_SXP: emptyPump(),
+      P2_DXP: emptyPump(),
+      P3_DXP: emptyPump(),
+    }))
     autoFillOpeningMeters(readings, newDate)
     applyShiftAttendants(newDate)
+    applyExistingReadings(readings, newDate)
+  }
+
+  // Wires up the previously-dead "Clear form" button — resets the current
+  // date's entries back to their auto-filled/existing state rather than
+  // leaving half-typed values sitting in the form.
+  const clearForm = () => {
+    setExistingIds({})
+    setForm(prev => ({
+      ...prev,
+      P1_SXP: emptyPump(),
+      P1_DXP: emptyPump(),
+      P2_SXP: emptyPump(),
+      P2_DXP: emptyPump(),
+      P3_DXP: emptyPump(),
+    }))
+    autoFillOpeningMeters(readings, form.reading_date)
+    applyShiftAttendants(form.reading_date)
+    applyExistingReadings(readings, form.reading_date)
   }
 
   // ── Delivery checkbox: Option A ────────────────────────────
@@ -188,29 +264,57 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
   }
 
   // ── Save ───────────────────────────────────────────────────
+  // Branches per pump/fuel row: existingIds[key] set -> PUT (correcting an
+  // already-saved reading), unset -> POST (first entry for this pump/fuel
+  // on this date). This was the actual bug: it always POSTed regardless,
+  // so re-saving a date that already had entries hit the unique constraint
+  // on (reading_date, pump_id, fuel_type) with no way to edit instead.
   const handleSave = async () => {
     setSaving(true)
     try {
+      let updated = 0, created = 0
       for (const { key, pumpId, fuel } of PUMP_CONFIGS) {
         const pump = form[key]
         if (!pump.closing_meter) continue
-        const litres = calcLitres(pump.opening_meter, pump.closing_meter)
-        const amount = calcAmount(litres, fuel)
-        await api.post('/meter', {
-          reading_date:  form.reading_date,
-          pump_id:       pumpId,
-          fuel_type:     fuel,
-          attendant_id:  pump.attendant_id || null,
-          opening_meter: parseFloat(pump.opening_meter) || 0,
-          closing_meter: parseFloat(pump.closing_meter),
-          amount_ghs:    parseFloat(amount),
-          rtt_litres:    parseFloat(pump.rtt_litres) || 0,
-        })
+        const existingId = existingIds[key]
+
+        if (existingId) {
+          // PUT only accepts closing_meter/attendant_id/rtt_litres — see
+          // server/routes/meter.js. reading_date/pump_id/fuel_type/
+          // opening_meter are immutable on an existing row by design.
+          await api.put(`/meter/${existingId}`, {
+            closing_meter: parseFloat(pump.closing_meter),
+            attendant_id:  pump.attendant_id || null,
+            rtt_litres:    parseFloat(pump.rtt_litres) || 0,
+          })
+          updated++
+        } else {
+          const litres = calcLitres(pump.opening_meter, pump.closing_meter)
+          const amount = calcAmount(litres, fuel)
+          await api.post('/meter', {
+            reading_date:  form.reading_date,
+            pump_id:       pumpId,
+            fuel_type:     fuel,
+            attendant_id:  pump.attendant_id || null,
+            opening_meter: parseFloat(pump.opening_meter) || 0,
+            closing_meter: parseFloat(pump.closing_meter),
+            amount_ghs:    parseFloat(amount),
+            rtt_litres:    parseFloat(pump.rtt_litres) || 0,
+          })
+          created++
+        }
       }
 
-      showToast('success', 'Meter entry saved', form.reading_date)
+      const summary = updated && created
+        ? `${created} new, ${updated} updated`
+        : updated
+          ? `${updated} entr${updated > 1 ? 'ies' : 'y'} updated`
+          : `${created} entr${created > 1 ? 'ies' : 'y'} saved`
+
+      showToast('success', 'Meter entry saved', `${form.reading_date} — ${summary}`)
       const res = await api.get('/meter')
       setReadings(res.data)
+      applyExistingReadings(res.data, form.reading_date)
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.error || 'Check your connection')
     } finally {
@@ -242,7 +346,12 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
       {isAdminOrManager && (
         <div className="card mb-16">
           <div className="card-header">
-            <div className="card-title">Daily entry — {form.reading_date}</div>
+            <div className="card-title">
+              {Object.keys(existingIds).length > 0 ? `Editing entry — ${form.reading_date}` : `Daily entry — ${form.reading_date}`}
+            </div>
+            {Object.keys(existingIds).length > 0 && (
+              <span className="badge badge-amber">Editing saved entries</span>
+            )}
           </div>
 
           {/* Date picker */}
@@ -341,6 +450,9 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
                   <span style={{ fontSize:13, fontWeight:500, color:'var(--charcoal)' }}>
                     {label} — {fuel}
                   </span>
+                  {existingIds[key] && (
+                    <span className="badge badge-amber" style={{ fontSize:10 }}>Already saved — editing</span>
+                  )}
                   <div style={{ width:8, height:8, background:dotColor, borderRadius:'50%', marginLeft:'auto' }}></div>
                 </div>
 
@@ -444,10 +556,10 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
           </div>
 
           <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:16 }}>
-            <button className="btn btn-ghost">Clear form</button>
+            <button className="btn btn-ghost" onClick={clearForm}>Clear form</button>
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
               <i className="ph ph-floppy-disk"></i>
-              {saving ? 'Saving…' : 'Save entry'}
+              {saving ? 'Saving…' : Object.keys(existingIds).length > 0 ? 'Update entries' : 'Save entry'}
             </button>
           </div>
         </div>

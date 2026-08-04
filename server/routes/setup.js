@@ -43,6 +43,15 @@ router.put('/', authenticate, adminOrManager, async (req, res) => {
       dealer_margin_per_litre, setup_completed
     } = req.body;
 
+    // Runs on the server's own clock, not the caller's — so this catches
+    // a wrong client-side clock, not just a fat-fingered date. See
+    // meter.js/deliveries.js/sales.js/tankstock.js for the same pattern;
+    // this field was previously the one date input in the app with no
+    // validation at all, client or server.
+    if (system_start_date && system_start_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'system_start_date cannot be in the future' });
+    }
+
     const id = await getSetupId(req.supabaseAdmin);
 
     const updates = {};

@@ -29,6 +29,17 @@ export default function TankStock() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
 
+  // Maps tank id -> id of the existing tank_stock row for the currently
+  // selected stock_date, if one was already saved. The per-row pencil-icon
+  // edit modal below (openEdit/handleUpdateRow) already handles corrections
+  // correctly via PUT — this is a separate gap: the daily-entry form above
+  // it always POSTed regardless of whether today's date already had an
+  // entry, so re-opening an already-saved day and using the top form (the
+  // obvious first thing to try) hit the (stock_date, tank_id) unique
+  // constraint instead of editing. This tracks the same detection for that
+  // top form, so it can PUT instead.
+  const [existingStockIds, setExistingStockIds] = useState({})
+
   const [form, setForm] = useState({
     stock_date: new Date().toISOString().split('T')[0],
     TANK_A: emptyTank(),
@@ -148,6 +159,44 @@ export default function TankStock() {
       return updated
     })
 
+    // Detect any entry that already exists for the selected date — same
+    // gap this file's pencil-icon edit modal already covers for corrections
+    // made from the history table below, but the top form itself never
+    // checked before blind-POSTing. Only closing_stock_dip is loaded back
+    // in (the one genuinely manual field); opening_stock and litres_sold
+    // keep using the live auto-fill above/below rather than the stored
+    // snapshot, since the backend re-derives both fresh on every save too.
+    const idsForDate = {}
+    const existingByTank = {}
+    TANKS.forEach(({ tankId }) => {
+      const existing = stocks.find(s => s.tank_id === tankId && s.stock_date === form.stock_date)
+      if (existing) {
+        idsForDate[tankId] = existing.id
+        existingByTank[tankId] = existing
+      }
+    })
+    setExistingStockIds(idsForDate)
+    if (Object.keys(idsForDate).length > 0) {
+      setForm(prev => {
+        const updated = { ...prev }
+        TANKS.forEach(({ tankId }) => {
+          if (existingByTank[tankId]) {
+            updated[tankId] = { ...updated[tankId], closing_stock_dip: String(existingByTank[tankId].closing_stock_dip) }
+          }
+        })
+        return updated
+      })
+      // Restore the delivery checkbox/figures for any tank whose existing
+      // row recorded a delivery — otherwise re-saving with the checkbox
+      // unchecked would silently zero out a real delivery_litres value.
+      TANKS.forEach(({ tankId }) => {
+        const existing = existingByTank[tankId]
+        if (existing && parseFloat(existing.delivery_litres) > 0) {
+          handleDeliveryToggle(tankId, true)
+        }
+      })
+    }
+
     api.get(`/meter?start_date=${form.stock_date}&end_date=${form.stock_date}`)
       .then(res => {
         const readings = res.data || []
@@ -160,7 +209,7 @@ export default function TankStock() {
         }))
       })
       .catch(console.error)
-  }, [stocks, form.stock_date, loading])
+  }, [stocks, form.stock_date, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Variance calculations ──────────────────────────────────
   // actual_variance  = closing_dip − (opening + actual_delivery  − sold)
@@ -244,36 +293,64 @@ export default function TankStock() {
 
   // Reset delivery state when date changes
   const handleDateChange = (newDate) => {
-    setForm(prev => ({ ...prev, stock_date: newDate }))
+    setExistingStockIds({})
+    setForm(prev => ({ ...prev, stock_date: newDate, TANK_A: emptyTank(), TANK_B: emptyTank() }))
     setDelivery({ TANK_A: emptyDelivery(), TANK_B: emptyDelivery() })
   }
 
   // ── Save ───────────────────────────────────────────────────
+  // Branches per tank: existingStockIds[tankId] set -> PUT (correcting an
+  // already-saved entry for this date), unset -> POST (first entry for
+  // this tank on this date). Previously always POSTed, so reusing this
+  // form on an already-saved day collided with the (stock_date, tank_id)
+  // unique constraint — the pencil-icon edit in the history table below
+  // already worked, but this top form had no equivalent check.
   const handleSave = async () => {
     setSaving(true)
     try {
+      let updated = 0, created = 0
       for (const { tankId, fuel } of TANKS) {
         const tank = form[tankId]
         if (!tank.closing_stock_dip) continue
 
-        const actualVariance   = parseFloat(calcActualVariance(tankId))
-        const expectedVariance = parseFloat(calcExpectedVariance(tankId))
         const d = delivery[tankId]
+        const existingId = existingStockIds[tankId]
 
-        await api.post('/tank-stock', {
-          stock_date:        form.stock_date,
-          tank_id:           tankId,
-          fuel_type:         fuel,
-          opening_stock:     parseFloat(tank.opening_stock)     || 0,
-          litres_sold:       parseFloat(tank.litres_sold)        || 0,
-          delivery_litres:   d.checked ? d.actual_litres         : 0,
-          closing_stock_dip: parseFloat(tank.closing_stock_dip),
-          actual_variance:   actualVariance,
-          expected_variance: expectedVariance,
-        })
+        if (existingId) {
+          // PUT only accepts closing_stock_dip/delivery_litres — see
+          // server/routes/tankstock.js. opening_stock, litres_sold, and
+          // expected_variance are re-derived server-side either way.
+          await api.put(`/tank-stock/${existingId}`, {
+            closing_stock_dip: parseFloat(tank.closing_stock_dip),
+            delivery_litres:   d.checked ? d.actual_litres : 0,
+          })
+          updated++
+        } else {
+          const actualVariance   = parseFloat(calcActualVariance(tankId))
+          const expectedVariance = parseFloat(calcExpectedVariance(tankId))
+
+          await api.post('/tank-stock', {
+            stock_date:        form.stock_date,
+            tank_id:           tankId,
+            fuel_type:         fuel,
+            opening_stock:     parseFloat(tank.opening_stock)     || 0,
+            litres_sold:       parseFloat(tank.litres_sold)        || 0,
+            delivery_litres:   d.checked ? d.actual_litres         : 0,
+            closing_stock_dip: parseFloat(tank.closing_stock_dip),
+            actual_variance:   actualVariance,
+            expected_variance: expectedVariance,
+          })
+          created++
+        }
       }
 
-      showToast('success', 'Tank stock saved', form.stock_date)
+      const summary = updated && created
+        ? `${created} new, ${updated} updated`
+        : updated
+          ? `${updated} tank${updated > 1 ? 's' : ''} updated`
+          : `${created} tank${created > 1 ? 's' : ''} saved`
+
+      showToast('success', 'Tank stock saved', `${form.stock_date} — ${summary}`)
       const res = await api.get('/tank-stock')
       setStocks(res.data)
     } catch (err) {
@@ -332,6 +409,9 @@ export default function TankStock() {
                   </div>
                   <div className="card-subtitle">Capacity: 10,000 L</div>
                 </div>
+                {existingStockIds[tankId] && (
+                  <span className="badge badge-amber">Already saved — editing</span>
+                )}
               </div>
 
               {/* Delivery checkbox */}
@@ -495,7 +575,7 @@ export default function TankStock() {
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:20 }}>
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           <i className="ph ph-floppy-disk"></i>
-          {saving ? 'Saving…' : 'Save tank stock'}
+          {saving ? 'Saving…' : Object.keys(existingStockIds).length > 0 ? 'Update tank stock' : 'Save tank stock'}
         </button>
       </div>
 

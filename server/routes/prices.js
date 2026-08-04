@@ -62,6 +62,12 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
     if (!Number.isFinite(Number(price_per_litre)) || Number(price_per_litre) <= 0) {
       return res.status(400).json({ error: 'price_per_litre must be a positive number' });
     }
+    // Deliberately NOT adding a "cannot be in the future" guard here.
+    // Unlike meter/sales/deliveries/tank-stock — which record something
+    // that already physically happened — NPA bulletins are routinely
+    // published ahead of their effective date, and pre-entering that price
+    // before it takes effect is a legitimate, sensible workflow. Blocking
+    // it would fix a clock-skew edge case by breaking the common case.
 
     const { data, error } = await req.supabaseAdmin
       .from('fuel_prices')

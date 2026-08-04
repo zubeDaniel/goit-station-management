@@ -73,7 +73,12 @@ router.post('/', authenticate, adminOrManager, async (req, res) => {
       .select()
       .single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: `A meter reading for ${pump_id} ${fuel_type} on ${reading_date} already exists — edit that entry instead of creating a new one.` });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save meter reading' });
