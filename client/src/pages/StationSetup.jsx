@@ -130,6 +130,23 @@ export default function StationSetup() {
       }
 
       if (wizardStep === 3) {
+        // Once the station has gone live, this step is a one-time action
+        // that already happened — re-running it would try to write a
+        // synthetic "day zero" baseline (closing_meter == opening_meter,
+        // litres_sold == 0) onto whatever date happens to land on
+        // system_start_date - 1. If real operational data already exists
+        // for that date, this doesn't just collide — worse, if that
+        // collision were ever made to "override," it would silently
+        // replace a real day's closing meter and revenue with a zeroed
+        // placeholder. So after go-live this step does nothing except
+        // advance; corrections belong in Meter Book, which has its own
+        // edit path.
+        if (setup?.setup_completed) {
+          setWizardStep(prev => prev + 1)
+          setSaving(false)
+          return
+        }
+
         // Save baseline meter readings as synthetic "day before system_start_date" records
         // MeterBook auto-fill picks these up as opening meters on day 1
         const baselineDate = new Date(wizardData.system_start_date)
@@ -160,6 +177,14 @@ export default function StationSetup() {
       }
 
       if (wizardStep === 4) {
+        // Same reasoning as Step 3 above — locked once the station is
+        // already live. Corrections belong in Tank Stock's own edit path.
+        if (setup?.setup_completed) {
+          setWizardStep(prev => prev + 1)
+          setSaving(false)
+          return
+        }
+
         const today = wizardData.tank_date
         if (wizardData.tank_a_volume) {
           await api.post('/tank-stock', {
@@ -326,7 +351,11 @@ export default function StationSetup() {
                     <div className="form-group">
                       <label className="form-label">System start date</label>
                       <input className="form-input" type="date" value={wizardData.system_start_date}
+                        disabled={setup?.setup_completed}
                         onChange={e => setWizardData(p => ({ ...p, system_start_date: e.target.value }))} />
+                      {setup?.setup_completed && (
+                        <span className="form-hint">Locked — the station is already live. This date is only used to compute the one-time opening-meter baseline, which has already been set. To change it, use the plain field in Station Setup's Configuration section instead, outside this wizard.</span>
+                      )}
                       <span className="form-hint">The date you begin entering data into this system</span>
                     </div>
                   </div>
@@ -390,34 +419,51 @@ export default function StationSetup() {
                 <div>
                   <div style={{ fontSize:20, fontWeight:700, color:'var(--charcoal)', marginBottom:6 }}>Enter opening meter readings</div>
                   <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:28, lineHeight:1.6 }}>Read the current meter values physically from each pump nozzle. These become the baseline for calculating litres sold.</div>
-                  <div style={{ background:'var(--orange-subtle)', border:'1px solid var(--orange-border)', borderRadius:'var(--r-md)', padding:'12px 14px', fontSize:12, color:'var(--charcoal)', marginBottom:20, display:'flex', gap:10 }}>
-                    <i className="ph ph-info" style={{ fontSize:16, flexShrink:0, color:'var(--orange)' }}></i>
-                    Go to each pump and read the odometer display. Enter exactly what you see. These are cumulative totals, not daily figures.
-                  </div>
 
-                  {[['P1','SXP','DXP'],['P2','SXP','DXP'],['P3','DXP']].map(([pump, ...fuels]) => (
-                    <div key={pump} style={{ border:'1px solid var(--border)', borderRadius:'var(--r-md)', overflow:'hidden', marginBottom:12 }}>
-                      <div style={{ background:'var(--charcoal)', color:'#fff', padding:'9px 14px', fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:8 }}>
-                        <span style={{ background:'rgba(255,255,255,0.15)', padding:'2px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>{pump}</span>
-                        Pump {pump.slice(1)} — {fuels.join(' + ')}
-                      </div>
-                      <div style={{ padding:14 }}>
-                        <div className="form-row" style={{ maxWidth: fuels.length === 1 ? 300 : '100%' }}>
-                          {fuels.map(fuel => (
-                            <div key={fuel} className="form-group">
-                              <label className="form-label">
-                                <span style={{ display:'inline-block', width:8, height:8, background: fuel === 'SXP' ? 'var(--orange)' : 'var(--amber)', borderRadius:'50%', marginRight:5 }}></span>
-                                {fuel} opening meter (L)
-                              </label>
-                              <input className="form-input" type="number" placeholder="e.g. 44821.50"
-                                value={wizardData[`${pump}_${fuel}_meter`]}
-                                onChange={e => setWizardData(p => ({ ...p, [`${pump}_${fuel}_meter`]: e.target.value }))} />
-                            </div>
-                          ))}
+                  {setup?.setup_completed ? (
+                    <div style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:'var(--r-md)', padding:'18px 16px', display:'flex', gap:12 }}>
+                      <i className="ph ph-lock-simple" style={{ fontSize:20, flexShrink:0, color:'var(--text-3)' }}></i>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)', marginBottom:4 }}>Already set — this step is locked</div>
+                        <div style={{ fontSize:12, color:'var(--text-2)', lineHeight:1.6 }}>
+                          The station is already live, so this one-time opening baseline has already been recorded. Re-running it would write a synthetic zero-litres reading on top of whatever date happens to fall the day before your start date — on a live station that date almost certainly already has real entries, so this could silently overwrite real closing meters and revenue.
+                          <br/><br/>
+                          To fix a wrong meter reading on any specific day, use <strong>Meter Book</strong> directly — reopening that day there loads the real saved entry for editing instead of creating a duplicate.
                         </div>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <>
+                      <div style={{ background:'var(--orange-subtle)', border:'1px solid var(--orange-border)', borderRadius:'var(--r-md)', padding:'12px 14px', fontSize:12, color:'var(--charcoal)', marginBottom:20, display:'flex', gap:10 }}>
+                        <i className="ph ph-info" style={{ fontSize:16, flexShrink:0, color:'var(--orange)' }}></i>
+                        Go to each pump and read the odometer display. Enter exactly what you see. These are cumulative totals, not daily figures.
+                      </div>
+
+                      {[['P1','SXP','DXP'],['P2','SXP','DXP'],['P3','DXP']].map(([pump, ...fuels]) => (
+                        <div key={pump} style={{ border:'1px solid var(--border)', borderRadius:'var(--r-md)', overflow:'hidden', marginBottom:12 }}>
+                          <div style={{ background:'var(--charcoal)', color:'#fff', padding:'9px 14px', fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:8 }}>
+                            <span style={{ background:'rgba(255,255,255,0.15)', padding:'2px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>{pump}</span>
+                            Pump {pump.slice(1)} — {fuels.join(' + ')}
+                          </div>
+                          <div style={{ padding:14 }}>
+                            <div className="form-row" style={{ maxWidth: fuels.length === 1 ? 300 : '100%' }}>
+                              {fuels.map(fuel => (
+                                <div key={fuel} className="form-group">
+                                  <label className="form-label">
+                                    <span style={{ display:'inline-block', width:8, height:8, background: fuel === 'SXP' ? 'var(--orange)' : 'var(--amber)', borderRadius:'50%', marginRight:5 }}></span>
+                                    {fuel} opening meter (L)
+                                  </label>
+                                  <input className="form-input" type="number" placeholder="e.g. 44821.50"
+                                    value={wizardData[`${pump}_${fuel}_meter`]}
+                                    onChange={e => setWizardData(p => ({ ...p, [`${pump}_${fuel}_meter`]: e.target.value }))} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -426,52 +472,69 @@ export default function StationSetup() {
                 <div>
                   <div style={{ fontSize:20, fontWeight:700, color:'var(--charcoal)', marginBottom:6 }}>Enter opening tank stock</div>
                   <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:28, lineHeight:1.6 }}>Do a dip stick reading on both tanks and enter the current volume. This is the baseline for all stock reconciliation.</div>
-                  <div style={{ background:'var(--orange-subtle)', border:'1px solid var(--orange-border)', borderRadius:'var(--r-md)', padding:'12px 14px', fontSize:12, color:'var(--charcoal)', marginBottom:20, display:'flex', gap:10 }}>
-                    <i className="ph ph-info" style={{ fontSize:16, flexShrink:0, color:'var(--orange)' }}></i>
-                    Use the dip stick to physically measure the fuel level in each underground tank. Convert your dip reading to litres using the tank calibration chart.
-                  </div>
-                  <div className="form-row">
-                    <div className="card" style={{ marginBottom:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
-                        <i className="ph ph-cylinder" style={{ fontSize:18, color:'var(--orange)' }}></i>
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)' }}>Tank A — SXP</div>
-                          <div style={{ fontSize:11, color:'var(--text-3)' }}>Feeds P1 and P2 · Capacity: 10,000 L</div>
+
+                  {setup?.setup_completed ? (
+                    <div style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:'var(--r-md)', padding:'18px 16px', display:'flex', gap:12 }}>
+                      <i className="ph ph-lock-simple" style={{ fontSize:20, flexShrink:0, color:'var(--text-3)' }}></i>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)', marginBottom:4 }}>Already set — this step is locked</div>
+                        <div style={{ fontSize:12, color:'var(--text-2)', lineHeight:1.6 }}>
+                          The station is already live, so the opening tank stock baseline has already been recorded. Re-running it would try to insert another entry for whichever date is in the field below, which on a live station almost certainly already has a real dip reading.
+                          <br/><br/>
+                          To fix a wrong tank stock entry on any specific day, use <strong>Tank Stock</strong> directly — reopening that day there loads the real saved entry for editing instead of creating a duplicate.
                         </div>
                       </div>
-                      <div className="form-group" style={{ marginBottom:10 }}>
-                        <label className="form-label">Current volume (litres)</label>
-                        <input className="form-input" type="number" placeholder="e.g. 8200"
-                          value={wizardData.tank_a_volume}
-                          onChange={e => setWizardData(p => ({ ...p, tank_a_volume: e.target.value }))} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Dip reading date</label>
-                        <input className="form-input" type="date" value={wizardData.tank_date}
-                          onChange={e => setWizardData(p => ({ ...p, tank_date: e.target.value }))} />
-                      </div>
                     </div>
-                    <div className="card" style={{ marginBottom:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
-                        <i className="ph ph-cylinder" style={{ fontSize:18, color:'var(--amber)' }}></i>
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)' }}>Tank B — DXP</div>
-                          <div style={{ fontSize:11, color:'var(--text-3)' }}>Feeds P1, P2 and P3 · Capacity: 10,000 L</div>
+                  ) : (
+                    <>
+                      <div style={{ background:'var(--orange-subtle)', border:'1px solid var(--orange-border)', borderRadius:'var(--r-md)', padding:'12px 14px', fontSize:12, color:'var(--charcoal)', marginBottom:20, display:'flex', gap:10 }}>
+                        <i className="ph ph-info" style={{ fontSize:16, flexShrink:0, color:'var(--orange)' }}></i>
+                        Use the dip stick to physically measure the fuel level in each underground tank. Convert your dip reading to litres using the tank calibration chart.
+                      </div>
+                      <div className="form-row">
+                        <div className="card" style={{ marginBottom:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                            <i className="ph ph-cylinder" style={{ fontSize:18, color:'var(--orange)' }}></i>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)' }}>Tank A — SXP</div>
+                              <div style={{ fontSize:11, color:'var(--text-3)' }}>Feeds P1 and P2 · Capacity: 10,000 L</div>
+                            </div>
+                          </div>
+                          <div className="form-group" style={{ marginBottom:10 }}>
+                            <label className="form-label">Current volume (litres)</label>
+                            <input className="form-input" type="number" placeholder="e.g. 8200"
+                              value={wizardData.tank_a_volume}
+                              onChange={e => setWizardData(p => ({ ...p, tank_a_volume: e.target.value }))} />
+                          </div>
+                          <div className="form-group">
+                            <label className="form-label">Dip reading date</label>
+                            <input className="form-input" type="date" value={wizardData.tank_date}
+                              onChange={e => setWizardData(p => ({ ...p, tank_date: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="card" style={{ marginBottom:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                            <i className="ph ph-cylinder" style={{ fontSize:18, color:'var(--amber)' }}></i>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'var(--charcoal)' }}>Tank B — DXP</div>
+                              <div style={{ fontSize:11, color:'var(--text-3)' }}>Feeds P1, P2 and P3 · Capacity: 10,000 L</div>
+                            </div>
+                          </div>
+                          <div className="form-group" style={{ marginBottom:10 }}>
+                            <label className="form-label">Current volume (litres)</label>
+                            <input className="form-input" type="number" placeholder="e.g. 1875"
+                              value={wizardData.tank_b_volume}
+                              onChange={e => setWizardData(p => ({ ...p, tank_b_volume: e.target.value }))} />
+                          </div>
+                          <div className="form-group">
+                            <label className="form-label">Dip reading date</label>
+                            <input className="form-input" type="date" value={wizardData.tank_date}
+                              onChange={e => setWizardData(p => ({ ...p, tank_date: e.target.value }))} />
+                          </div>
                         </div>
                       </div>
-                      <div className="form-group" style={{ marginBottom:10 }}>
-                        <label className="form-label">Current volume (litres)</label>
-                        <input className="form-input" type="number" placeholder="e.g. 1875"
-                          value={wizardData.tank_b_volume}
-                          onChange={e => setWizardData(p => ({ ...p, tank_b_volume: e.target.value }))} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Dip reading date</label>
-                        <input className="form-input" type="date" value={wizardData.tank_date}
-                          onChange={e => setWizardData(p => ({ ...p, tank_date: e.target.value }))} />
-                      </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               )}
 
