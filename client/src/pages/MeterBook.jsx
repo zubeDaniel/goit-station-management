@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import api from '../lib/api'
 import { useToast } from '../components/Toast'
 import { useRole } from '../hooks/useRole'
@@ -38,6 +38,19 @@ export default function MeterBook() {
   const [deliveryChecked, setDeliveryChecked]   = useState(false)
   const [deliveryFetching, setDeliveryFetching] = useState(false)
   const [deliveryData, setDeliveryData]         = useState(null) // array of delivery records for the date
+
+  // ── Recent readings — filters ──────────────────────────────
+  // These filter the already-loaded `readings` array client-side (GET
+  // /meter currently returns the full table with no pagination, so
+  // `readings` already holds everything the server has — no extra
+  // network round trip needed). Kept fully separate from `form` /
+  // `existingIds` above so filtering the history view can never
+  // interfere with the daily-entry form's auto-fill logic, which needs
+  // the *complete* unfiltered history to compute opening meters and
+  // detect existing rows correctly.
+  const [historyDate, setHistoryDate]     = useState('')  // exact-match reading_date
+  const [historyAttendant, setHistoryAttendant] = useState('') // attendant_id
+  const [historyPump, setHistoryPump]     = useState('')  // pump_id
 
   const [form, setForm] = useState({
     reading_date: new Date().toISOString().split('T')[0],
@@ -332,6 +345,60 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
   const totalLitres  = totalSXP + totalDXP
   const dealerEarnings = totalLitres * dealerMargin
 
+  // ── Recent readings — attendant filter options ──────────────
+  // Derived from `readings` (already loaded for every role, unlike the
+  // gated /attendants list which 403s for Viewer) so the filter works
+  // identically for Admin, Manager, and Viewer.
+  const attendantOptions = useMemo(() => {
+    const map = new Map()
+    readings.forEach(r => {
+      if (r.attendant_id && r.attendants?.name) map.set(r.attendant_id, r.attendants.name)
+    })
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [readings])
+
+  const historyFilterActive = Boolean(historyDate || historyAttendant || historyPump)
+
+  const filteredReadings = useMemo(() => {
+    if (!historyFilterActive) return readings.slice(0, 20)
+    return readings.filter(r => {
+      if (historyDate && r.reading_date !== historyDate) return false
+      if (historyAttendant && String(r.attendant_id) !== String(historyAttendant)) return false
+      if (historyPump && r.pump_id !== historyPump) return false
+      return true
+    })
+  }, [readings, historyDate, historyAttendant, historyPump, historyFilterActive])
+
+  const clearHistoryFilters = () => {
+    setHistoryDate('')
+    setHistoryAttendant('')
+    setHistoryPump('')
+  }
+
+  // Group the (already reading_date-descending-ordered) filtered rows
+  // into per-date blocks so the date renders once per block instead of
+  // once per pump/fuel row — this is the actual fix for "hard to find a
+  // specific date/attendant": the eye scans date banners, not 5 nearly
+  // identical rows per date.
+  const historyGroups = useMemo(() => {
+    const groups = []
+    let current = null
+    filteredReadings.forEach(r => {
+      if (!current || current.date !== r.reading_date) {
+        current = { date: r.reading_date, rows: [] }
+        groups.push(current)
+      }
+      current.rows.push(r)
+    })
+    return groups
+  }, [filteredReadings])
+
+  const formatHistoryDate = (isoDate) => {
+    const d = new Date(isoDate + 'T00:00:00')
+    if (isNaN(d.getTime())) return isoDate
+    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
   if (loading) return <div className="loading-screen">Loading meter book...</div>
 
   return (
@@ -569,35 +636,105 @@ isAdminOrManager ? api.get('/prices/current') : Promise.resolve({ data: {} }),
       <div className="card">
         <div className="card-header">
           <div className="card-title">Recent readings</div>
+          {historyFilterActive && (
+            <span className="badge badge-navy">
+              {filteredReadings.length} match{filteredReadings.length !== 1 ? 'es' : ''}
+            </span>
+          )}
         </div>
+
+        {/* Filters — date, attendant, pump. All client-side over the
+            already-loaded `readings` array; see historyFilterActive
+            above for why no extra fetch is needed. */}
+        <div style={{ display:'flex', alignItems:'flex-end', gap:12, flexWrap:'wrap', marginBottom:14 }}>
+          <div className="form-group" style={{ maxWidth:170 }}>
+            <label className="form-label">Date</label>
+            <input
+              className="form-input"
+              type="date"
+              value={historyDate}
+              onChange={e => setHistoryDate(e.target.value)}
+            />
+          </div>
+          <div className="form-group" style={{ maxWidth:200 }}>
+            <label className="form-label">Attendant</label>
+            <select
+              className="form-select"
+              value={historyAttendant}
+              onChange={e => setHistoryAttendant(e.target.value)}
+            >
+              <option value="">All attendants</option>
+              {attendantOptions.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group" style={{ maxWidth:140 }}>
+            <label className="form-label">Pump</label>
+            <select
+              className="form-select"
+              value={historyPump}
+              onChange={e => setHistoryPump(e.target.value)}
+            >
+              <option value="">All pumps</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </div>
+          {historyFilterActive && (
+            <button className="btn btn-ghost btn-sm" onClick={clearHistoryFilters}>
+              <i className="ph ph-x"></i> Clear filters
+            </button>
+          )}
+          {!historyFilterActive && (
+            <span style={{ fontSize:11, color:'var(--text-3)', paddingBottom:8 }}>
+              Showing 20 most recent — filter to search the full history
+            </span>
+          )}
+        </div>
+
         <div className="table-wrap">
-          <table>
+          <table className="tbl-history">
             <thead>
               <tr>
-                <th>Date</th><th>Pump</th><th>Fuel</th><th>Attendant</th><th>Opening</th>
+                <th>Pump</th><th>Fuel</th><th>Attendant</th><th>Opening</th>
                 <th>Closing</th><th>Litres sold</th><th>Amount (GHS)</th><th>RTT</th>
               </tr>
             </thead>
             <tbody>
-              {readings.slice(0, 20).map(r => (
-                <tr key={r.id}>
-                  <td>{r.reading_date}</td>
-                  <td><span className="badge badge-navy">{r.pump_id}</span></td>
-                  <td><span className={`badge ${r.fuel_type === 'SXP' ? 'badge-blue' : 'badge-amber'}`}>{r.fuel_type}</span></td>
-                  <td>{r.attendants?.name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                  <td className="td-calc">{parseFloat(r.opening_meter).toFixed(2)}</td>
-                  <td className="td-calc">{parseFloat(r.closing_meter).toFixed(2)}</td>
-                  <td className="td-calc">{parseFloat(r.litres_sold).toFixed(2)}</td>
-                  <td className="td-calc">{parseFloat(r.amount_ghs).toFixed(2)}</td>
-                  <td className="td-calc" style={{ color:'var(--amber)' }}>
-                    {parseFloat(r.rtt_litres || 0).toFixed(2)}
-                  </td>
-                </tr>
+              {historyGroups.map((group, groupIdx) => (
+                <Fragment key={group.date}>
+                  <tr className="history-date-group" key={`date-${group.date}`}>
+                    <td colSpan={8}>
+                      {formatHistoryDate(group.date)}
+                      <span style={{ marginLeft:8, fontWeight:400, fontSize:11, color:'var(--text-3)', textTransform:'none' }}>
+                        {group.rows.length} reading{group.rows.length !== 1 ? 's' : ''}
+                      </span>
+                    </td>
+                  </tr>
+                  {group.rows.map(r => (
+                    <tr key={r.id} className={groupIdx % 2 === 1 ? 'history-row-alt' : undefined}>
+                      <td><span className="badge badge-navy">{r.pump_id}</span></td>
+                      <td><span className={`badge ${r.fuel_type === 'SXP' ? 'badge-blue' : 'badge-amber'}`}>{r.fuel_type}</span></td>
+                      <td>{r.attendants?.name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                      <td className="td-calc">{parseFloat(r.opening_meter).toFixed(2)}</td>
+                      <td className="td-calc">{parseFloat(r.closing_meter).toFixed(2)}</td>
+                      <td className="td-calc">{parseFloat(r.litres_sold).toFixed(2)}</td>
+                      <td className="td-calc">{parseFloat(r.amount_ghs).toFixed(2)}</td>
+                      <td className="td-calc" style={{ color:'var(--amber)' }}>
+                        {parseFloat(r.rtt_litres || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
               ))}
-              {readings.length === 0 && (
+              {historyGroups.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
-                    No readings yet
+                  <td colSpan={8} style={{ textAlign:'center', color:'var(--text-3)', padding:24 }}>
+                    {historyFilterActive
+                      ? 'No readings match these filters'
+                      : 'No readings yet'}
                   </td>
                 </tr>
               )}

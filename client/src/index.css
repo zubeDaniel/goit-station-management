@@ -302,6 +302,36 @@
     color: var(--charcoal);
     border-bottom: none;
   }
+
+  /* ============================================================
+     METER BOOK — GROUPED HISTORY TABLE  ★ v1.1
+     Scoped to .tbl-history only. Groups per-date readings under a
+     single date banner row (date shown once per group instead of
+     once per pump/fuel row) so scanning for a specific date or
+     attendant doesn't require reading the Date column on every row.
+     ============================================================ */
+  .tbl-history tbody tr.history-date-group td {
+    background: var(--orange-subtle);
+    border-top: 2px solid var(--orange-border);
+    border-bottom: 1px solid var(--orange-border);
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--charcoal);
+  }
+  .tbl-history tbody tr.history-date-group:first-child td {
+    border-top: none;
+  }
+  .tbl-history tbody tr.history-row-alt td {
+    background: var(--surface-2);
+  }
+  .tbl-history tbody tr.history-row-alt:hover td {
+    background: var(--border);
+  }
+  .tbl-history tbody tr:not(.history-date-group):hover td {
+    background: var(--border);
+  }
+
   
   /* ============================================================
      BADGES
