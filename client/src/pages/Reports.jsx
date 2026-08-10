@@ -77,16 +77,33 @@ export default function Reports() {
       const totalBanked = banking.reduce((s, b) => s + parseFloat(b.total_banked_ghs || 0), 0)
       const totalCredit = credits.reduce((s, c) => s + parseFloat(c.total_amount_ghs || 0), 0)
 
-      // Company colors
-      const ORANGE = [210, 90, 20]
-      const BLACK = [0, 0, 0]
-      const DARK_GREY = [45, 45, 45]
-      const ASH = [220, 220, 220]
-      const LIGHT_ASH = [240, 240, 240]
-      const WHITE = [255, 255, 255]
-      const GREEN = [26, 107, 58]
+      // ── GOIL brand palette ──────────────────────────────
+      // GOIL's corporate colour is orange (company statement at the 2012
+      // rebrand: "the corporate colour will remain orange to reflect the
+      // goodness of the sun and the energy it provides"), paired with a
+      // charcoal-grey wordmark. This report intentionally uses GOIL's own
+      // brand colours rather than this app's internal navy/red UI tokens
+      // (PRD §3.1) — the PDF is a station document that may be seen outside
+      // this app, the in-app screens are not. If GOIL ever publishes an
+      // official brand-guideline hex for the orange, swap ORANGE below —
+      // every other value derives visually from these two anchors, so one
+      // change here is the only change needed.
+      const ORANGE       = [210, 90, 20]   // GOIL corporate orange
+      const BLACK        = [0, 0, 0]
+      const DARK_GREY    = [45, 45, 45]    // wordmark charcoal
+      const LABEL_GREY   = [68, 68, 68]    // KPI/field labels — one step lighter than DARK_GREY
+      const MID_GREY     = [150, 150, 150] // footnotes, source lines, cover meta text
+      const ASH          = [220, 220, 220] // table header fill
+      const LIGHT_ASH    = [240, 240, 240] // zebra-striped row fill
+      const WHITE        = [255, 255, 255]
+
+      // Semantic status colours — NOT brand colours. These flag good/bad
+      // figures (variance, profit) and must stay green/red regardless of
+      // what GOIL's brand palette is, same convention as the in-app screens.
+      const GREEN       = [26, 107, 58]
       const GREEN_LIGHT = [237, 247, 241]
-      const RED = [196, 30, 30]
+      const RED         = [196, 30, 30]
+      const RED_LIGHT   = [253, 241, 241]
 
       const pw = 210
       const ph = 297
@@ -116,11 +133,11 @@ export default function Reports() {
 
       doc.setFontSize(13)
       doc.setFont('helvetica', 'normal')
-      doc.setTextColor(200, 200, 200)
+      doc.setTextColor(...MID_GREY)
       doc.text('Monthly Operations Report', ml + 8, 36)
 
       doc.setFontSize(10)
-      doc.setTextColor(160, 160, 160)
+      doc.setTextColor(...MID_GREY)
       doc.text(`Report period: ${monthLabel}`, ml + 8, 52)
       doc.text(`Station: ${data.setup?.station_name || 'T-Man Kuntunso GOIL Station'}`, ml + 8, 58)
       doc.text(`Location: ${data.setup?.location || 'Kuntunso, Western Region'}`, ml + 8, 64)
@@ -155,7 +172,7 @@ export default function Reports() {
           doc.rect(ml, y - 4, cw, 8, 'F')
         }
         doc.setFont('helvetica', 'normal')
-        doc.setTextColor(68, 68, 68)
+        doc.setTextColor(...LABEL_GREY)
         doc.text(label, ml + 2, y)
         doc.setFont('helvetica', 'bold')
         if (isProfit) {
@@ -213,7 +230,7 @@ export default function Reports() {
 
       doc.setFont('helvetica', 'italic')
       doc.setFontSize(7)
-      doc.setTextColor(150, 150, 150)
+      doc.setTextColor(...MID_GREY)
       doc.text('RTT = Return to Tank. Stock event only — excluded from all revenue totals.', ml, y)
       y += 8
 
@@ -251,7 +268,7 @@ export default function Reports() {
       })
 
       if (sales.length === 0) {
-        doc.setTextColor(150, 150, 150)
+        doc.setTextColor(...MID_GREY)
         doc.setFontSize(8)
         doc.text('No data for this period', ml + cw / 2, y + 5, { align: 'center' })
         y += 12
@@ -335,7 +352,7 @@ export default function Reports() {
       })
 
       if (credits.length === 0) {
-        doc.setTextColor(150, 150, 150)
+        doc.setTextColor(...MID_GREY)
         doc.setFontSize(8)
         doc.text('No credit sales for this period', ml + cw / 2, y + 5, { align: 'center' })
         y += 12
@@ -369,7 +386,7 @@ export default function Reports() {
           doc.setFillColor(...GREEN_LIGHT)
           doc.rect(ml, y - 5, cw, 10, 'F')
         } else if (row.highlight === 'red') {
-          doc.setFillColor(253, 241, 241)
+          doc.setFillColor(...RED_LIGHT)
           doc.rect(ml, y - 5, cw, 10, 'F')
         } else if (idx % 2 === 0) {
           doc.setFillColor(...LIGHT_ASH)
@@ -395,7 +412,7 @@ export default function Reports() {
 
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(7)
-        doc.setTextColor(150, 150, 150)
+        doc.setTextColor(...MID_GREY)
         doc.text(row.source, ml + 13, y + 4)
         y += 13
       })
@@ -403,7 +420,7 @@ export default function Reports() {
       y += 4
       doc.setFontSize(7)
       doc.setFont('helvetica', 'italic')
-      doc.setTextColor(150, 150, 150)
+      doc.setTextColor(...MID_GREY)
       doc.text(`★ Total Revenue is shown for audit purposes only. Dealer income = GHS ${margin}/L margin, not total revenue.`, ml, y)
       y += 12
 
@@ -532,7 +549,7 @@ export default function Reports() {
         doc.setPage(i)
         doc.setFillColor(...DARK_GREY)
         doc.rect(0, ph - 12, pw, 12, 'F')
-        doc.setTextColor(200, 200, 200)
+        doc.setTextColor(...MID_GREY)
         doc.setFontSize(7)
         doc.setFont('helvetica', 'normal')
         doc.text(`T-Man Kuntunso GOIL Station · ${monthLabel} Report · Confidential`, ml, ph - 5)
