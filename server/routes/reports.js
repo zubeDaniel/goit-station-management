@@ -77,12 +77,18 @@ async function assembleReport(supabaseAdmin, month) {
     meterRes, salesRes, bankingRes,
     creditRes, expensesRes, tankRes
   ] = await Promise.all([
-    supabaseAdmin.from('pump_meter_readings').select('*').gte('reading_date', startDate).lte('reading_date', endDate),
-    supabaseAdmin.from('sales_book').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
-    supabaseAdmin.from('banking').select('*').gte('entry_date', startDate).lte('entry_date', endDate),
-    supabaseAdmin.from('credit_sales').select('*, creditors(name)').gte('sale_date', startDate).lte('sale_date', endDate),
-    supabaseAdmin.from('expenses').select('*').gte('expense_date', startDate).lte('expense_date', endDate).is('deleted_at', null),
-    supabaseAdmin.from('tank_stock').select('*').gte('stock_date', startDate).lte('stock_date', endDate),
+    supabaseAdmin.from('pump_meter_readings').select('*').gte('reading_date', startDate).lte('reading_date', endDate).order('reading_date', { ascending: true }).order('pump_id', { ascending: true }).order('fuel_type', { ascending: true }),
+    supabaseAdmin.from('sales_book').select('*').gte('entry_date', startDate).lte('entry_date', endDate).order('entry_date', { ascending: true }),
+    supabaseAdmin.from('banking').select('*').gte('entry_date', startDate).lte('entry_date', endDate).order('entry_date', { ascending: true }),
+    supabaseAdmin.from('credit_sales').select('*, creditors(name)').gte('sale_date', startDate).lte('sale_date', endDate).order('sale_date', { ascending: true }),
+    supabaseAdmin.from('expenses').select('*').gte('expense_date', startDate).lte('expense_date', endDate).is('deleted_at', null).order('expense_date', { ascending: true }),
+    // ORDER BY here is not cosmetic — summarizeStockMovement() below reads
+    // rows[0] as "opening stock" and rows[length-1] as "closing stock".
+    // Without a guaranteed date order, both are whatever the DB happened to
+    // return first/last (insertion order), not actually day-1 and day-N.
+    // This was already true before consolidation — moving it here just
+    // means it's now wrong (or right) in exactly one place instead of two.
+    supabaseAdmin.from('tank_stock').select('*').gte('stock_date', startDate).lte('stock_date', endDate).order('stock_date', { ascending: true }),
   ]);
 
   const meterReadings = meterRes.data || [];

@@ -2,6 +2,19 @@ import { useState } from 'react'
 import api from '../lib/api'
 import { useToast } from '../components/Toast'
 
+// GHS currency formatter — shared by the in-app screen and the PDF export.
+// Previously this was re-declared locally inside handleExportPDF (as
+// `fmt`) and, separately, as eight inline `.toLocaleString(undefined, {
+// minimumFractionDigits: 2 })` calls scattered through the JSX render.
+// Both forms were missing `maximumFractionDigits`, so any figure whose
+// underlying float has more than 2 decimal digits — e.g. dealer earnings,
+// litres × a 1-decimal rate — printed with 3+ decimals instead of being
+// rounded to currency precision (visible in the Aug 2026 report: "GHS
+// 8,537.022" throughout Section 5, 7, and the KPI header). One formatter,
+// capped correctly, used everywhere.
+const fmt = (n) => parseFloat(n || 0).toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtL = (n) => fmt(n) + ' L'
+
 export default function Reports() {
   const { showToast } = useToast()
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
@@ -63,8 +76,6 @@ export default function Reports() {
       const { jsPDF } = await import('jspdf')
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-      const fmt = (n) => parseFloat(n || 0).toLocaleString('en-GH', { minimumFractionDigits: 2 })
-      const fmtL = (n) => fmt(n) + ' L'
       const monthLabel = new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })
       const margin = data.dealer_margin_per_litre
       const meter = data.section1_fuel_sales || []
@@ -637,23 +648,23 @@ export default function Reports() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
             <div className="kpi-card kpi-red">
               <div className="kpi-label">Total revenue</div>
-              <div className="kpi-value">GHS {parseFloat(s5?.total_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              <div className="kpi-value">GHS {fmt(s5?.total_revenue || 0)}</div>
               <div className="kpi-sub">Meter book total</div>
             </div>
             <div className="kpi-card kpi-blue">
               <div className="kpi-label">Total litres</div>
-              <div className="kpi-value">{parseFloat(s5?.total_litres || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} L</div>
+              <div className="kpi-value">{fmt(s5?.total_litres || 0)} L</div>
               <div className="kpi-sub">SXP {parseFloat(s5?.total_sxp_litres || 0).toFixed(2)} · DXP {parseFloat(s5?.total_dxp_litres || 0).toFixed(2)}</div>
             </div>
             <div className="kpi-card kpi-green">
               <div className="kpi-label">Dealer earnings</div>
-              <div className="kpi-value">GHS {parseFloat(s5?.dealer_earnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              <div className="kpi-value">GHS {fmt(s5?.dealer_earnings || 0)}</div>
               <div className="kpi-sub">GHS {report.dealer_margin_per_litre}/L × {parseFloat(s5?.total_litres || 0).toFixed(2)} L</div>
             </div>
             <div className="kpi-card kpi-green">
               <div className="kpi-label">Net dealer profit</div>
               <div className="kpi-value" style={{ color: parseFloat(s5?.net_dealer_profit || 0) < 0 ? 'var(--red)' : 'var(--navy)' }}>
-                GHS {parseFloat(s5?.net_dealer_profit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                GHS {fmt(s5?.net_dealer_profit || 0)}
               </div>
               <div className="kpi-sub">Earnings − Expenses</div>
             </div>
@@ -864,7 +875,7 @@ export default function Reports() {
                   <tr>
                     <td><span className="badge badge-navy">1</span></td>
                     <td><strong>Total Revenue</strong></td>
-                    <td className="td-calc">GHS {parseFloat(s5?.total_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="td-calc">GHS {fmt(s5?.total_revenue || 0)}</td>
                     <td style={{ fontSize: 11, color: 'var(--text-3)' }}>SUM(sales_book.total_sales_ghs)</td>
                   </tr>
                   <tr>
@@ -885,20 +896,20 @@ export default function Reports() {
                   <tr style={{ background: 'var(--green-subtle)' }}>
                     <td><span className="badge badge-green">2</span></td>
                     <td><strong>Dealer Earnings</strong></td>
-                    <td className="td-calc" style={{ color: 'var(--green)', fontWeight: 700 }}>GHS {parseFloat(s5?.dealer_earnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="td-calc" style={{ color: 'var(--green)', fontWeight: 700 }}>GHS {fmt(s5?.dealer_earnings || 0)}</td>
                     <td style={{ fontSize: 11, color: 'var(--text-3)' }}>Total litres × GHS {report.dealer_margin_per_litre}/L</td>
                   </tr>
                   <tr>
                     <td><span className="badge badge-red">3</span></td>
                     <td><strong>Total Expenses</strong></td>
-                    <td className="td-calc">GHS {parseFloat(s5?.total_expenses || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="td-calc">GHS {fmt(s5?.total_expenses || 0)}</td>
                     <td style={{ fontSize: 11, color: 'var(--text-3)' }}>SUM(expenses.amount_ghs)</td>
                   </tr>
                   <tr style={{ background: parseFloat(s5?.net_dealer_profit || 0) < 0 ? 'var(--red-subtle)' : 'var(--green-subtle)' }}>
                     <td><span className={`badge ${parseFloat(s5?.net_dealer_profit || 0) >= 0 ? 'badge-green' : 'badge-red'}`}>4</span></td>
                     <td><strong>Net Dealer Profit ★</strong></td>
                     <td className="td-calc" style={{ color: parseFloat(s5?.net_dealer_profit || 0) < 0 ? 'var(--red)' : 'var(--green)', fontWeight: 700, fontSize: 15 }}>
-                      GHS {parseFloat(s5?.net_dealer_profit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      GHS {fmt(s5?.net_dealer_profit || 0)}
                     </td>
                     <td style={{ fontSize: 11, color: 'var(--text-3)' }}>Dealer Earnings − Total Expenses</td>
                   </tr>
