@@ -24,11 +24,21 @@ export default function Reports() {
         section5_consolidated: res.data.section5_consolidated || {
           total_revenue: 0, total_sxp_litres: 0, total_dxp_litres: 0,
           total_litres: 0, dealer_earnings: 0, total_expenses: 0, net_dealer_profit: 0,
+          total_banked: 0, total_credit: 0,
         },
         section6_stock_movement: res.data.section6_stock_movement || [],
+        // Rollup used to be computed twice client-side (once for the PDF,
+        // once here) — now it's assembled once server-side; this is just
+        // a safe fallback shape while `report` briefly hasn't loaded yet.
+        section6_summary: res.data.section6_summary || {
+          sxp: { opening: 0, received: 0, sold: 0, closing: 0, variance: 0 },
+          dxp: { opening: 0, received: 0, sold: 0, closing: 0, variance: 0 },
+          combined: { opening: 0, received: 0, sold: 0, closing: 0, variance: 0 },
+        },
         section7_dealer_margin: res.data.section7_dealer_margin || {
           daily: [], total_litres: 0, margin_per_litre: 0.30, total_earnings: 0
         },
+        previous_month: res.data.previous_month || { month: null, has_data: false, section5_consolidated: null },
       }
       setReport(safe)
       showToast('success', 'Report generated', month)
@@ -44,14 +54,11 @@ export default function Reports() {
     setExporting(true)
     showToast('info', 'Generating PDF...', 'This may take a few seconds')
     try {
-      const token = localStorage.getItem('goil_token')
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-      const response = await fetch(
-        `${apiUrl}/pdf/${month}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      if (!response.ok) throw new Error('Failed to fetch report data')
-      const data = await response.json()
+      // Was: manual fetch() to /pdf/:month with a hand-attached Bearer token.
+      // That route (server/routes/pdf.js) re-ran the same 6 queries as this
+      // endpoint and computed nothing — retired. Reusing `api` also picks up
+      // its shared 15s timeout and 401-redirect handling for free.
+      const { data } = await api.get(`/reports/${month}`)
 
       const { jsPDF } = await import('jspdf')
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -59,23 +66,24 @@ export default function Reports() {
       const fmt = (n) => parseFloat(n || 0).toLocaleString('en-GH', { minimumFractionDigits: 2 })
       const fmtL = (n) => fmt(n) + ' L'
       const monthLabel = new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })
-      const margin = data.margin
-      const meter = data.meter || []
-      const sales = data.sales || []
-      const banking = data.banking || []
-      const credits = data.credits || []
-      const expenses = data.expenses || []
-      const tanks = data.tanks || []
+      const margin = data.dealer_margin_per_litre
+      const meter = data.section1_fuel_sales || []
+      const sales = data.section2_sales_book || []
+      const banking = data.section3_banking || []
+      const credits = data.section4_credit_sales || []
+      const tanks = data.section6_stock_movement || []
 
       const totalSXP = meter.filter(r => r.fuel_type === 'SXP').reduce((s, r) => s + parseFloat(r.litres_sold || 0), 0)
       const totalDXP = meter.filter(r => r.fuel_type === 'DXP').reduce((s, r) => s + parseFloat(r.litres_sold || 0), 0)
       const totalLitres = totalSXP + totalDXP
       const totalRevenue = sales.reduce((s, r) => s + parseFloat(r.total_sales_ghs || 0), 0)
       const dealerEarnings = totalLitres * margin
-      const totalExpenses = expenses.reduce((s, e) => s + parseFloat(e.amount_ghs || 0), 0)
+      // total_expenses / total_banked / total_credit now computed once,
+      // server-side, in section5_consolidated — no longer re-derived here.
+      const totalExpenses = data.section5_consolidated.total_expenses
       const netDealerProfit = dealerEarnings - totalExpenses
-      const totalBanked = banking.reduce((s, b) => s + parseFloat(b.total_banked_ghs || 0), 0)
-      const totalCredit = credits.reduce((s, c) => s + parseFloat(c.total_amount_ghs || 0), 0)
+      const totalBanked = data.section5_consolidated.total_banked
+      const totalCredit = data.section5_consolidated.total_credit
 
       // ── GOIL brand palette ──────────────────────────────
       // GOIL's corporate colour is orange (company statement at the 2012
@@ -436,18 +444,17 @@ export default function Reports() {
       doc.text('SECTION 6 — MONTHLY STOCK MOVEMENT', ml + 6, y + 2)
       y += 15
 
-      const tankA = tanks.filter(t => t.tank_id === 'TANK_A')
-      const tankB = tanks.filter(t => t.tank_id === 'TANK_B')
-      const sxpOpening = tankA.length > 0 ? parseFloat(tankA[0].opening_stock) : 0
-      const sxpReceived = tankA.reduce((s, t) => s + parseFloat(t.delivery_litres || 0), 0)
-      const sxpSold = tankA.reduce((s, t) => s + parseFloat(t.litres_sold || 0), 0)
-      const sxpClosing = tankA.length > 0 ? parseFloat(tankA[tankA.length - 1].closing_stock_dip) : 0
-      const dxpOpening = tankB.length > 0 ? parseFloat(tankB[0].opening_stock) : 0
-      const dxpReceived = tankB.reduce((s, t) => s + parseFloat(t.delivery_litres || 0), 0)
-      const dxpSold = tankB.reduce((s, t) => s + parseFloat(t.litres_sold || 0), 0)
-      const dxpClosing = tankB.length > 0 ? parseFloat(tankB[tankB.length - 1].closing_stock_dip) : 0
-      const sxpVar = sxpClosing - (sxpOpening + sxpReceived - sxpSold)
-      const dxpVar = dxpClosing - (dxpOpening + dxpReceived - dxpSold)
+      const { sxp: sxpStock, dxp: dxpStock } = data.section6_summary
+      const sxpOpening = sxpStock.opening
+      const sxpReceived = sxpStock.received
+      const sxpSold = sxpStock.sold
+      const sxpClosing = sxpStock.closing
+      const dxpOpening = dxpStock.opening
+      const dxpReceived = dxpStock.received
+      const dxpSold = dxpStock.sold
+      const dxpClosing = dxpStock.closing
+      const sxpVar = sxpStock.variance
+      const dxpVar = dxpStock.variance
 
       const stockRows = [
         ['Opening stock — 1st of month', fmtL(sxpOpening), fmtL(dxpOpening), fmtL(sxpOpening + dxpOpening)],
@@ -911,33 +918,24 @@ export default function Reports() {
                 <div className="card-subtitle">Opening stock + received − sold = closing · per fuel type</div>
               </div>
               {(() => {
-                const tankA = report.section6_stock_movement.filter(t => t.tank_id === 'TANK_A')
-                const tankB = report.section6_stock_movement.filter(t => t.tank_id === 'TANK_B')
-                const sxpOpening = tankA.length > 0 ? parseFloat(tankA[0].opening_stock) : 0
-                const sxpReceived = tankA.reduce((s, t) => s + parseFloat(t.delivery_litres || 0), 0)
-                const sxpSold = tankA.reduce((s, t) => s + parseFloat(t.litres_sold || 0), 0)
-                const sxpClosing = tankA.length > 0 ? parseFloat(tankA[tankA.length - 1].closing_stock_dip) : 0
-                const dxpOpening = tankB.length > 0 ? parseFloat(tankB[0].opening_stock) : 0
-                const dxpReceived = tankB.reduce((s, t) => s + parseFloat(t.delivery_litres || 0), 0)
-                const dxpSold = tankB.reduce((s, t) => s + parseFloat(t.litres_sold || 0), 0)
-                const dxpClosing = tankB.length > 0 ? parseFloat(tankB[tankB.length - 1].closing_stock_dip) : 0
-                const sxpVariance = sxpClosing - (sxpOpening + sxpReceived - sxpSold)
-                const dxpVariance = dxpClosing - (dxpOpening + dxpReceived - dxpSold)
-                const combinedVariance = sxpVariance + dxpVariance
+                // Was: a second copy of the same rollup formula computed
+                // in handleExportPDF for the PDF — now both read
+                // report.section6_summary, computed once server-side.
+                const { sxp, dxp, combined } = report.section6_summary
                 return (
                   <table>
                     <thead><tr><th>Metric</th><th>SXP (Tank A)</th><th>DXP (Tank B)</th><th>Combined</th></tr></thead>
                     <tbody>
-                      <tr><td><strong>Opening stock — 1st of month</strong></td><td className="td-calc">{sxpOpening.toFixed(2)} L</td><td className="td-calc">{dxpOpening.toFixed(2)} L</td><td className="td-calc">{(sxpOpening + dxpOpening).toFixed(2)} L</td></tr>
-                      <tr><td><strong>Total received this month</strong></td><td className="td-calc">{sxpReceived.toFixed(2)} L</td><td className="td-calc">{dxpReceived.toFixed(2)} L</td><td className="td-calc">{(sxpReceived + dxpReceived).toFixed(2)} L</td></tr>
-                      <tr><td><strong>Total sold this month</strong></td><td className="td-calc">{sxpSold.toFixed(2)} L</td><td className="td-calc">{dxpSold.toFixed(2)} L</td><td className="td-calc">{(sxpSold + dxpSold).toFixed(2)} L</td></tr>
-                      <tr><td><strong>Expected closing stock</strong></td><td className="td-calc">{(sxpOpening + sxpReceived - sxpSold).toFixed(2)} L</td><td className="td-calc">{(dxpOpening + dxpReceived - dxpSold).toFixed(2)} L</td><td className="td-calc">{(sxpOpening + sxpReceived - sxpSold + dxpOpening + dxpReceived - dxpSold).toFixed(2)} L</td></tr>
-                      <tr><td><strong>Actual closing stock (last dip)</strong></td><td className="td-calc">{sxpClosing.toFixed(2)} L</td><td className="td-calc">{dxpClosing.toFixed(2)} L</td><td className="td-calc">{(sxpClosing + dxpClosing).toFixed(2)} L</td></tr>
+                      <tr><td><strong>Opening stock — 1st of month</strong></td><td className="td-calc">{sxp.opening.toFixed(2)} L</td><td className="td-calc">{dxp.opening.toFixed(2)} L</td><td className="td-calc">{combined.opening.toFixed(2)} L</td></tr>
+                      <tr><td><strong>Total received this month</strong></td><td className="td-calc">{sxp.received.toFixed(2)} L</td><td className="td-calc">{dxp.received.toFixed(2)} L</td><td className="td-calc">{combined.received.toFixed(2)} L</td></tr>
+                      <tr><td><strong>Total sold this month</strong></td><td className="td-calc">{sxp.sold.toFixed(2)} L</td><td className="td-calc">{dxp.sold.toFixed(2)} L</td><td className="td-calc">{combined.sold.toFixed(2)} L</td></tr>
+                      <tr><td><strong>Expected closing stock</strong></td><td className="td-calc">{(sxp.opening + sxp.received - sxp.sold).toFixed(2)} L</td><td className="td-calc">{(dxp.opening + dxp.received - dxp.sold).toFixed(2)} L</td><td className="td-calc">{(combined.opening + combined.received - combined.sold).toFixed(2)} L</td></tr>
+                      <tr><td><strong>Actual closing stock (last dip)</strong></td><td className="td-calc">{sxp.closing.toFixed(2)} L</td><td className="td-calc">{dxp.closing.toFixed(2)} L</td><td className="td-calc">{combined.closing.toFixed(2)} L</td></tr>
                       <tr className="tr-total">
                         <td><strong>Net variance</strong></td>
-                        <td><span className={`badge ${sxpVariance >= 0 ? 'badge-green' : 'badge-red'}`}>{sxpVariance >= 0 ? '+' : ''}{sxpVariance.toFixed(2)} L</span></td>
-                        <td><span className={`badge ${dxpVariance >= 0 ? 'badge-green' : 'badge-red'}`}>{dxpVariance >= 0 ? '+' : ''}{dxpVariance.toFixed(2)} L</span></td>
-                        <td><span className={`badge ${combinedVariance >= 0 ? 'badge-green' : 'badge-red'}`}>{combinedVariance >= 0 ? '+' : ''}{combinedVariance.toFixed(2)} L</span></td>
+                        <td><span className={`badge ${sxp.variance >= 0 ? 'badge-green' : 'badge-red'}`}>{sxp.variance >= 0 ? '+' : ''}{sxp.variance.toFixed(2)} L</span></td>
+                        <td><span className={`badge ${dxp.variance >= 0 ? 'badge-green' : 'badge-red'}`}>{dxp.variance >= 0 ? '+' : ''}{dxp.variance.toFixed(2)} L</span></td>
+                        <td><span className={`badge ${combined.variance >= 0 ? 'badge-green' : 'badge-red'}`}>{combined.variance >= 0 ? '+' : ''}{combined.variance.toFixed(2)} L</span></td>
                       </tr>
                     </tbody>
                   </table>
