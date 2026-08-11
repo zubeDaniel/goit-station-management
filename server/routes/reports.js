@@ -28,6 +28,106 @@ function previousMonthKey(month) {
   return d.toISOString().slice(0, 7); // YYYY-MM
 }
 
+function lastNMonths(month, n) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(`${month}-01T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - i);
+    out.push(d.toISOString().slice(0, 7));
+  }
+  return out;
+}
+
+// Lightweight — only pump_meter_readings, only what the trend chart needs.
+// Deliberately not the full assembleReport(): fetching sales/banking/
+// credits/expenses/tanks for 5 extra months just to plot two numbers per
+// month would be wasted work.
+async function getMonthlyFuelRevenue(supabaseAdmin, month) {
+  const { startDate, endDate } = monthDateRange(month);
+  const { data } = await supabaseAdmin
+    .from('pump_meter_readings')
+    .select('fuel_type, amount_ghs')
+    .gte('reading_date', startDate)
+    .lte('reading_date', endDate);
+  const rows = data || [];
+  const sxp = rows.filter(r => r.fuel_type === 'SXP').reduce((s, r) => s + parseFloat(r.amount_ghs || 0), 0);
+  const dxp = rows.filter(r => r.fuel_type === 'DXP').reduce((s, r) => s + parseFloat(r.amount_ghs || 0), 0);
+  return { month, sxp, dxp };
+}
+
+// Flag thresholds — defaults, not yet exposed as configuration anywhere.
+// Same status as dealer_margin_per_litre before it got a station_setup
+// field: reasonable starting values, worth tuning after real usage, not
+// worth blocking this feature on building a settings UI for them first.
+const FLAG_THRESHOLDS = {
+  revenueSwingPct: 0.10,     // ±10% MoM revenue change
+  tankVarianceLitres: 50,    // |actual_variance| on any single tank_stock day
+  creditorExposurePct: 0.80, // balance / credit_limit
+};
+
+// Deterministic, rule-based — no AI narration (matches what was agreed:
+// deterministic only, PDF only). Every flag here traces to a specific
+// number already computed elsewhere in this file; nothing is generated.
+function computeFlags({ current, previousSection5, creditors, compliance, endDate }) {
+  const flags = [];
+
+  if (previousSection5 && previousSection5.total_revenue > 0) {
+    const delta = (current.section5_consolidated.total_revenue - previousSection5.total_revenue) / previousSection5.total_revenue;
+    if (Math.abs(delta) >= FLAG_THRESHOLDS.revenueSwingPct) {
+      flags.push({
+        severity: delta > 0 ? 'positive' : 'warning',
+        message: `Total revenue ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta * 100).toFixed(1)}% vs last month`,
+      });
+    }
+  }
+
+  const varianceDays = (current.section6_stock_movement || [])
+    .filter(row => Math.abs(parseFloat(row.actual_variance || 0)) > FLAG_THRESHOLDS.tankVarianceLitres);
+  if (varianceDays.length > 0) {
+    const worst = varianceDays.reduce((a, b) =>
+      Math.abs(parseFloat(a.actual_variance)) > Math.abs(parseFloat(b.actual_variance)) ? a : b);
+    const wv = parseFloat(worst.actual_variance);
+    flags.push({
+      severity: 'warning',
+      message: `Tank variance exceeded ±${FLAG_THRESHOLDS.tankVarianceLitres} L on ${varianceDays.length} day${varianceDays.length > 1 ? 's' : ''} this month (worst: ${worst.stock_date}, ${wv > 0 ? '+' : ''}${wv.toFixed(2)} L, ${worst.tank_id})`,
+    });
+  }
+
+  (creditors || []).forEach(c => {
+    const limit = parseFloat(c.credit_limit_ghs || 0);
+    const balance = parseFloat(c.current_balance_ghs || 0);
+    if (limit > 0) {
+      const pct = balance / limit;
+      if (pct >= FLAG_THRESHOLDS.creditorExposurePct) {
+        flags.push({
+          severity: pct >= 1 ? 'critical' : 'warning',
+          message: `${c.name} balance at ${(pct * 100).toFixed(0)}% of credit limit (GHS ${balance.toFixed(2)} of GHS ${limit.toFixed(2)})`,
+        });
+      }
+    }
+  });
+
+  (compliance || []).forEach(cert => {
+    if (cert.status === 'archived' || !cert.expiry_date) return;
+    const expiry = new Date(cert.expiry_date);
+    const ref = new Date(endDate);
+    const daysLeft = Math.floor((expiry - ref) / (1000 * 60 * 60 * 24));
+    const window = cert.alert_days_before ?? 30;
+    if (daysLeft <= window) {
+      flags.push({
+        severity: daysLeft < 0 ? 'critical' : 'warning',
+        message: daysLeft < 0
+          ? `${cert.certificate_name} expired ${Math.abs(daysLeft)} day(s) ago`
+          : `${cert.certificate_name} expires in ${daysLeft} day(s)`,
+      });
+    }
+  });
+
+  const severityRank = { critical: 0, warning: 1, positive: 2 };
+  flags.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+  return flags;
+}
+
 // Section 6 rollup: opening + received − sold = expected closing, vs the
 // actual last dip. Moved here from Reports.jsx, where it was written
 // twice with no backend version at all — see note above.
@@ -165,16 +265,31 @@ router.get('/', authenticate, adminOrManager, async (req, res) => {
 // no longer calls a separate /pdf/:month — that route re-ran identical
 // queries and computed nothing; retired). Includes a trimmed
 // previous_month block for month-over-month deltas — live re-query, not
-// a stored snapshot (see assembleReport comment above for why).
+// a stored snapshot (see assembleReport comment above for why) — plus a
+// deterministic `flags` array and a 6-month `revenue_trend`, the data
+// behind the PDF's Executive Summary section.
 router.get('/:month', authenticate, adminOrManager, async (req, res) => {
   try {
     const { month } = req.params;
     const prevMonth = previousMonthKey(month);
+    const trendMonths = lastNMonths(month, 6);
 
-    const [current, previous] = await Promise.all([
+    const [current, previous, creditorsRes, complianceRes, ...trendResults] = await Promise.all([
       assembleReport(req.supabaseAdmin, month),
       assembleReport(req.supabaseAdmin, prevMonth),
+      req.supabaseAdmin.from('creditors').select('name, current_balance_ghs, credit_limit_ghs').eq('is_active', true),
+      req.supabaseAdmin.from('compliance_certificates').select('certificate_name, expiry_date, alert_days_before, status'),
+      ...trendMonths.map(m => getMonthlyFuelRevenue(req.supabaseAdmin, m)),
     ]);
+
+    const { endDate } = monthDateRange(month);
+    const flags = computeFlags({
+      current,
+      previousSection5: previous.has_data ? previous.section5_consolidated : null,
+      creditors: creditorsRes.data || [],
+      compliance: complianceRes.data || [],
+      endDate,
+    });
 
     res.json({
       ...current,
@@ -183,6 +298,8 @@ router.get('/:month', authenticate, adminOrManager, async (req, res) => {
         has_data: previous.has_data,
         section5_consolidated: previous.section5_consolidated,
       },
+      flags,
+      revenue_trend: trendResults,
     });
   } catch (err) {
     console.error('Report error:', err);

@@ -52,6 +52,8 @@ export default function Reports() {
           daily: [], total_litres: 0, margin_per_litre: 0.30, total_earnings: 0
         },
         previous_month: res.data.previous_month || { month: null, has_data: false, section5_consolidated: null },
+        flags: res.data.flags || [],
+        revenue_trend: res.data.revenue_trend || [],
       }
       setReport(safe)
       showToast('success', 'Report generated', month)
@@ -172,19 +174,26 @@ export default function Reports() {
       y += 6
 
       const kpis = [
-        ['Total Fuel Sales Revenue', `GHS ${fmt(totalRevenue)}`],
-        ['Total Litres Dispensed', fmtL(totalLitres)],
-        ['SXP Litres', fmtL(totalSXP)],
-        ['DXP Litres', fmtL(totalDXP)],
-        ['Total Banked', `GHS ${fmt(totalBanked)}`],
-        ['Merka Wood Credit Sales', `GHS ${fmt(totalCredit)}`],
-        ['Dealer Earnings', `GHS ${fmt(dealerEarnings)}`],
-        ['Total Expenses', `GHS ${fmt(totalExpenses)}`],
-        ['Net Dealer Profit', `GHS ${fmt(netDealerProfit)}`],
+        ['Total Fuel Sales Revenue', `GHS ${fmt(totalRevenue)}`, totalRevenue, 'total_revenue'],
+        ['Total Litres Dispensed', fmtL(totalLitres), totalLitres, 'total_litres'],
+        ['SXP Litres', fmtL(totalSXP), totalSXP, 'total_sxp_litres'],
+        ['DXP Litres', fmtL(totalDXP), totalDXP, 'total_dxp_litres'],
+        ['Total Banked', `GHS ${fmt(totalBanked)}`, totalBanked, 'total_banked'],
+        ['Merka Wood Credit Sales', `GHS ${fmt(totalCredit)}`, totalCredit, 'total_credit'],
+        ['Dealer Earnings', `GHS ${fmt(dealerEarnings)}`, dealerEarnings, 'dealer_earnings'],
+        ['Total Expenses', `GHS ${fmt(totalExpenses)}`, totalExpenses, 'total_expenses'],
+        ['Net Dealer Profit', `GHS ${fmt(netDealerProfit)}`, netDealerProfit, 'net_dealer_profit'],
       ]
 
+      // Month-over-month deltas — null when there's no prior-month data to
+      // compare against (e.g. the first month after launch) or when the
+      // prior value was zero (a % change against zero is meaningless, not
+      // "infinite growth"). Live re-query from the backend, not a stored
+      // snapshot — see reports.js for why.
+      const prevS5 = data.previous_month?.has_data ? data.previous_month.section5_consolidated : null
+
       doc.setFontSize(9)
-      kpis.forEach(([label, value], i) => {
+      kpis.forEach(([label, value, rawValue, key], i) => {
         const isProfit = label === 'Net Dealer Profit'
         if (i % 2 === 0) {
           doc.setFillColor(...LIGHT_ASH)
@@ -193,6 +202,21 @@ export default function Reports() {
         doc.setFont('helvetica', 'normal')
         doc.setTextColor(...LABEL_GREY)
         doc.text(label, ml + 2, y)
+
+        if (prevS5 && parseFloat(prevS5[key] || 0) !== 0) {
+          const prevVal = parseFloat(prevS5[key])
+          const delta = (rawValue - prevVal) / Math.abs(prevVal)
+          // jsPDF's built-in fonts don't include ▲/▼ (U+25B2/U+25BC) — they
+          // silently substitute a fallback glyph instead of erroring, which
+          // rendered as a stray "%" character. Plain +/- is in every font.
+          const deltaText = `${delta >= 0 ? '+' : '-'}${Math.abs(delta * 100).toFixed(1)}%`
+          doc.setFontSize(7.5)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(...(delta >= 0 ? GREEN : RED))
+          doc.text(deltaText, ml + 2 + doc.getTextWidth(label) + 7, y)
+          doc.setFontSize(9)
+        }
+
         doc.setFont('helvetica', 'bold')
         if (isProfit) {
           doc.setTextColor(...(netDealerProfit >= 0 ? GREEN : RED))
@@ -203,6 +227,89 @@ export default function Reports() {
         doc.setTextColor(...DARK_GREY)
         y += 8
       })
+
+      // ── EXECUTIVE SUMMARY: Key Callouts ─────────────────
+      // Deterministic, rule-based flags (revenue swing, tank variance,
+      // creditor exposure, compliance expiry) computed server-side in
+      // reports.js from FLAG_THRESHOLDS — nothing here is AI-generated,
+      // every line traces to a specific number already in this report.
+      const flags = data.flags || []
+      if (flags.length > 0) {
+        y += 6
+        checkPage(14 + flags.length * 7)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(...ORANGE)
+        doc.text('KEY CALLOUTS', ml, y)
+        y += 7
+
+        const FLAG_COLORS = { critical: RED, warning: [146, 83, 10], positive: GREEN }
+        const FLAG_BG = { critical: RED_LIGHT, warning: [253, 245, 230], positive: GREEN_LIGHT }
+        flags.forEach(flag => {
+          checkPage(9)
+          doc.setFillColor(...(FLAG_BG[flag.severity] || LIGHT_ASH))
+          doc.rect(ml, y - 4.5, cw, 7.5, 'F')
+          doc.setFillColor(...(FLAG_COLORS[flag.severity] || MID_GREY))
+          doc.rect(ml, y - 4.5, 1.5, 7.5, 'F')
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(8)
+          doc.setTextColor(...DARK_GREY)
+          doc.text(flag.message, ml + 5, y)
+          y += 7.5
+        })
+        y += 2
+      }
+
+      // ── EXECUTIVE SUMMARY: 6-month revenue trend ────────
+      const trend = data.revenue_trend || []
+      if (trend.length > 0) {
+        y += 4
+        checkPage(60)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(...ORANGE)
+        doc.text('REVENUE TREND — LAST 6 MONTHS (SXP vs DXP)', ml, y)
+        y += 4
+
+        const chartX = ml + 4
+        const chartW = cw - 8
+        const chartH = 42
+        const chartMax = Math.max(1, ...trend.flatMap(t => [t.sxp, t.dxp])) * 1.15
+        const groupW = chartW / trend.length
+        const barW = groupW * 0.30
+        const barGap = groupW * 0.06
+
+        doc.setDrawColor(...ASH)
+        doc.setLineWidth(0.2)
+        doc.line(chartX, y + chartH, chartX + chartW, y + chartH)
+
+        trend.forEach((t, i) => {
+          const groupX = chartX + i * groupW + groupW * 0.17
+          const hSxp = (t.sxp / chartMax) * chartH
+          const hDxp = (t.dxp / chartMax) * chartH
+          doc.setFillColor(...ORANGE)
+          doc.rect(groupX, y + chartH - hSxp, barW, hSxp, 'F')
+          doc.setFillColor(...DARK_GREY)
+          doc.rect(groupX + barW + barGap, y + chartH - hDxp, barW, hDxp, 'F')
+          doc.setFontSize(6.5)
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(...MID_GREY)
+          const [ty, tm] = t.month.split('-')
+          const monthShort = new Date(`${t.month}-01T00:00:00Z`).toLocaleString('default', { month: 'short', timeZone: 'UTC' })
+          doc.text(monthShort, groupX + barW + barGap / 2, y + chartH + 5, { align: 'center' })
+        })
+
+        y += chartH + 10
+        doc.setFillColor(...ORANGE)
+        doc.rect(chartX, y - 3, 3, 3, 'F')
+        doc.setFontSize(7.5)
+        doc.setTextColor(...MID_GREY)
+        doc.text('SXP revenue', chartX + 5, y)
+        doc.setFillColor(...DARK_GREY)
+        doc.rect(chartX + 35, y - 3, 3, 3, 'F')
+        doc.text('DXP revenue', chartX + 40, y)
+        y += 6
+      }
 
       // ── SECTION 1: FUEL SALES ──────────────────────────
       newPage()
